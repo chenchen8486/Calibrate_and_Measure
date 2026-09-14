@@ -21,7 +21,7 @@ assets/weights/*
 
 assets/test_data/input/*
 !assets/test_data/input/.gitkeep
-!assets/test_data/input/test.jpg
+!assets/test_data/input/5.jpg
 
 assets/test_data/calibration/*
 !assets/test_data/calibration/.gitkeep

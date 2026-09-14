@@ -250,7 +250,7 @@ struct CodeRegion {                  // 结构体四：码区定位（轴对齐�
     CodeType type;                   // 码类型
     double   x, y;                   // 外接矩形左上角
     double   w, h;                   // 外接矩形宽/高
-    double   confidence;             // 置信度 [0,1]：解码成功 1.0，仅定位 0.5
+    double   confidence;             // 置信度：解码成功 1.0，仅定位 0.5，条纹兜底候选 0.3
 };
 
 struct MeasureOutput {               // 单帧完整测量结果（Measure 的返回值）
@@ -396,12 +396,13 @@ Calibrate_and_Measure/
   加载失败时记 Warn 降级为未矫正运行，测量照常，结果仅像素值；完成标定后
   保持开关打开即自动切换为毫米输出。
 - AI 分割模型为 `assets/weights/small.onnx`（Python 侧 RF-DETR-seg small 导出）。
-- 码区检测（`[code_detect]`）基于 OpenCV 自带检测器：二维码用
-  `QRCodeDetector`，一维码用 `barcode::BarcodeDetector`。覆盖边界要清楚：
-  EAN/UPC 系条码可解码级检出（`confidence=1.0`，仅定位成功为 0.5）；
-  Code128、药品电子监管码等解码体系外的条码，以及印刷对比度过低的条码，
-  自带检测器定位不到（与 Python 侧实验结论一致）。需要覆盖这类码时，
-  后续走条纹纹理候选兜底或 AI 重训（分割模型加码类）路线。
+- 码区检测（`[code_detect]`）分三层，置信度按检出链路分级：二维码用
+  `QRCodeDetector`；一维码解码体系用 `barcode::BarcodeDetector`（EAN/UPC 系
+  解码成功 `confidence=1.0`，仅定位 0.5）；解码体系零检出时跑条纹兜底——
+  形态学定位致密平行条纹区域，覆盖 Code128、药品电子监管码等解码体系外的
+  条码，`confidence=0.3`（未确认仅定位，前端可按阈值过滤）。条纹兜底的
+  边界：印刷对比度过低或严重畸变/遮挡的码仍可能漏检，要更高覆盖率需走
+  AI 重训（分割模型加码类）路线。
 - 码区检测在未旋转的原始灰度图上进行：旋转插值会把条码细条纹抗锯齿平滑掉
   （实测 1° warp 即全尺度漏检），检出四角点后按校正角做精确仿射映射回
   校正坐标系，点变换无插值，不影响坐标精度。

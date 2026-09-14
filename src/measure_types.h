@@ -67,7 +67,8 @@ enum class CodeType : int {
 
 // 结构体四：码区定位（产品表面二维码/一维码的轴对齐外接矩形）
 // 码随产品一起经角度校正，校正后坐标系下码为正立，矩形轴对齐。
-// confidence 约定：解码成功 1.0，仅定位成功 0.5（传统检测器无原生分数）。
+// confidence 约定：解码成功 1.0，仅定位成功 0.5，条纹兜底候选 0.3
+// （传统检测器无原生分数，按检出链路分级）。
 struct CodeRegion {
     CodeType type = CodeType::QR;  // 码类型
     double   x = 0.0;              // 外接矩形左上角 x
