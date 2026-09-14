@@ -114,21 +114,26 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
     // 2.5) 几何矫正开启时：背景模型与每张输入图过同一张 remap 表（对齐 Python
     //      run_batch：rectifier.rectify(background)，输入图由调用方自行矫正）。
     //      矫正器仅此处使用一次，无需长期持有，用局部对象即可。
+    //      标定文件缺失/不可用或背景校正失败时不阻断流程：记 Warn 降级为
+    //      未矫正运行，测量结果仅像素值（调用方可用 RectifyEnabled 查询）。
     if (cfg_.rectify.enabled) {
         Rectifier rectifier;
+        std::string rectErr;
         if (!rectifier.Load(cfg_.rectify.calib_xml, cfg_.rectify.target_mm_per_px,
-                            errMsg)) {
-            common::LogMsg(common::LERROR, "几何矫正器初始化失败：" + errMsg);
-            return false;
+                            rectErr)) {
+            common::LogMsg(common::LWARN, "相机未标定或标定文件不可用（" + rectErr +
+                           "），本次按未矫正运行，测量结果仅像素值");
+        } else {
+            cv::Mat rectBg = rectifier.Rectify(background_);
+            if (rectBg.empty()) {
+                common::LogMsg(common::LWARN,
+                               "背景模型正射校正失败（尺寸与标定 image_size 不符），"
+                               "本次按未矫正运行，测量结果仅像素值");
+            } else {
+                background_ = rectBg;
+                common::LogMsg(common::LINFO, "几何矫正已启用，背景模型已同步正射校正");
+            }
         }
-        cv::Mat rectBg = rectifier.Rectify(background_);
-        if (rectBg.empty()) {
-            errMsg = "背景模型正射校正失败（尺寸与标定 image_size 不符）";
-            common::LogMsg(common::LERROR, errMsg);
-            return false;
-        }
-        background_ = rectBg;
-        common::LogMsg(common::LINFO, "几何矫正已启用，背景模型已同步正射校正");
     }
 
     // 3) 分割器初始化：method=="ai" 时创建 ONNX 会话，失败自动回退传统

@@ -6,6 +6,7 @@
 
 #include "checkerboard/board_generator.h"
 #include "common/image_io.h"
+#include "common/logger.h"
 
 namespace cam {
 
@@ -45,11 +46,17 @@ bool Measurer::Init(const std::string& iniPath, std::string& errMsg) {
         return false;
     }
 
-    // 4) 几何矫正（可选）：与流水线共用同一标定文件，一致性由门面保证
+    // 4) 几何矫正（可选）：与流水线共用同一标定文件，一致性由门面保证。
+    //    标定文件缺失/加载失败不阻断初始化：记 Warn 降级为未矫正运行，
+    //    测量照常（结果仅像素值），调用方可用 RectifyEnabled() 确认。
     const common::AppConfig& cfg = pipe_.Config();
-    if (cfg.rectify.enabled &&
-        !rectifier_.Load(cfg.rectify.calib_xml, cfg.rectify.target_mm_per_px, errMsg)) {
-        return false;
+    if (cfg.rectify.enabled) {
+        std::string rectErr;
+        if (!rectifier_.Load(cfg.rectify.calib_xml, cfg.rectify.target_mm_per_px,
+                             rectErr)) {
+            common::LogMsg(common::LWARN, "相机未标定或标定文件不可用（" + rectErr +
+                           "），已跳过几何矫正，测量结果仅像素值");
+        }
     }
 
     ready_ = true;

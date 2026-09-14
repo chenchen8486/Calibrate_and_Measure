@@ -96,15 +96,31 @@ bool cam::Calibrate(const std::vector<cv::Mat>& boardImages,
 - 传入 1~n 张采图即可，门面自动区分单图/多图（多图固定机位连拍，角点
   取均值降噪，更稳）。`report` 可传 nullptr 忽略。
 - 输入图像支持 8/24/32 通道（内部自动转灰度），多张尺寸须一致。
-- 参数读 ini 的 `[calibrate]` 段：`pattern_cols`/`pattern_rows`（内角点 =
-  格数-1）、`square_x_mm`/`square_y_mm`（实测格距，务必用卡尺量打印实物后
-  回填）、`out_xml`（标定文件输出路径）、`target_mm_per_px`（正射刻度）、
-  `qa_dir`（QA 图目录）。
+- 参数读 ini 的 `[calibrate]` 段：`input_dir`（采图目录）、`out_xml`（标定文件
+  输出路径）、`target_mm_per_px`（正射刻度）、`qa_dir`（QA 图目录）。
+  `pattern_cols`/`pattern_rows`（内角点）与 `square_x_mm`/`square_y_mm`
+  （标称格距）缺省自动跟随 `[checkerboard]` 制板参数（内角点 = 格数-1，
+  标称格距 = square_mm），一般不用配置；仅打印后实测格距与标称值有偏差时，
+  才用卡尺量取并显式回填 `square_x_mm`/`square_y_mm`。
 - 产物：标定文件 `[calibrate] out_xml`（OpenCV XML：内参/畸变/外参/格距/
   正射刻度）；`[debug]` 打开时另有 4 张 QA 质检图落 `qa_dir`。
 - 质量门禁：RMS > 0.3px 或校正验证 mean > 0.5px 时返回 false，但文件与
   QA 图照常输出，`report` 内的已知数值照常填写（验证未完成时 verify* 为 0），
   errMsg 说明质量偏低。可据 QA 图检查印刷精度与采图条件后重标。
+
+### 5.1 标定采图数量与要求
+
+- 数量：建议 3~5 张，固定机位连拍。单张也能求解，多张会对各图角点取均值，
+  相当于多次重复观测降噪，角点定位更稳；超过 5 张收益递减，不必多拍。
+- 机位与分辨率必须和正式测量完全一致。标定求解的内参、正射刻度都与图像
+  尺寸绑定，测量图尺寸不同会导致矫正失败或刻度错误。
+- 标定板要吸风展平，与生产同条件（同一光源、同一工作距离）。板面翘曲或
+  光照不一致会直接反映成重投影残差，RMS 超门禁就得重拍。
+- 标定板尽量充满画面，四周静区完整可见。角点检出数必须恰好等于
+  34×27（跟随制板参数），缺角或裁切会让当张检测直接失败。
+- 拍完先用卡尺实测打印格距，与标称值（`[checkerboard] square_mm`）有偏差
+  时回填 `[calibrate] square_x_mm/square_y_mm`，打印机走纸各向异性靠这一步
+  吸收。
 
 ## 6. 功能 3：单张图像测量
 
@@ -134,9 +150,10 @@ measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统
 3. 分割器：`[segmentation] method=="ai"` 时创建 ONNX 会话并完成预热；
    模型缺失/加载失败自动回退传统背景差分并记 Warn，Init 仍成功
    （用 `UsingAi()` 确认实际链路）。
-4. `[rectify] enabled=true` 时加载标定 XML 构建正射 remap 表，加载失败
-   Init 返回 false。矫正开启时 Init 还会用同一标定文件把背景模型同步
-   正射校正，调用方无需处理。
+4. `[rectify] enabled=true` 时加载标定 XML 构建正射 remap 表。相机未标定或
+   标定文件缺失时不阻断：记 Warn 降级为未矫正运行，测量照常（结果仅像素值），
+   用 `RectifyEnabled()` 确认实际状态。矫正生效时 Init 还会用同一标定文件
+   把背景模型同步正射校正，调用方无需处理。
 
 深度学习模型与预热的细节：
 
@@ -237,20 +254,22 @@ struct MeasureOutput {               // 单帧完整测量结果（Measure 的�
 ```
 
 宽高四线端点约定：四线围成闭合测量矩形。左/右竖线的纵向范围就是上/下横线的
-y 位置，上/下横线的横向范围就是左/右竖线的 x 位置：
+y 位置，上/下横线的横向范围就是左/右竖线的 x 位置。下图是一次实测的输出叠加，
+颜色即字段对应关系：
 
-```text
-              topLine（高度上边）
-        (x_l,y_t) ────────────── (x_r,y_t)
-           │                        │
-       leftLine                 rightLine
-      （宽度左竖线）           （宽度右竖线）
-           │                        │
-        (x_l,y_b) ────────────── (x_r,y_b)
-             bottomLine（高度下边）
+![测量输出说明](docs/design/measure_output_legend.png)
 
-   widthPx = x_r - x_l     heightPx = y_b - y_t
-```
+- 蓝色左右竖线 = `width.leftLine` / `width.rightLine`；
+  `width.widthPx` = 右竖线 x − 左竖线 x。
+- 绿色上下横线 = `height.topLine` / `height.bottomLine`；
+  `height.heightPx` = 下边 y − 上边 y。
+- 红色小段 = `horizontalEdges` 列表元素（图中红色编号即列表内顺序，
+  按 (y, x_left) 排序），每条含 `start`/`end`/`lengthPx`/`satisfied`，
+  `satisfied` 表示该边长度是否达到 `[measure] edge_width_threshold`。
+- 四线端点互为边界：竖线的纵向范围取上下横线的 y 位置，横线的横向范围
+  取左右竖线的 x 位置，因此四线严格围成闭合矩形。
+- `rotationDeg` 是本次测量的总校正角（度），`code`/`message` 给出成功
+  状态或失败原因。
 
 一次典型测量的填充示例（数值仅为示意）：
 
@@ -288,13 +307,18 @@ horizontalEdges（2 条）:
   `[measure]` 算法参数、`[debug]` 中间结果开关。各键中文注释见文件内。
 - 接口以 ini 路径为配置入口，显式传参；ini 内相对路径相对 ini 文件所在
   目录解析，ini 可随软件放任意位置。
+- 段间联动：`[calibrate]` 的内角点与标称格距缺省跟随 `[checkerboard]`
+  （内角点 = 格数-1，格距 = square_mm）；`[rectify]` 的标定文件与正射刻度
+  缺省跟随 `[calibrate]`（calib_xml = out_xml）。制板参数变更时下游两段
+  无需改动，只有与跟随值不同（如打印后实测格距）才显式覆盖。
 - 默认值与 Python 版 `configs/default.yaml` 对齐。
 
 ## 9. 依赖与分发清单
 
 - 开发/编译：Visual Studio 2019（v142）+ C++17；OpenCV 4.8.0；
-  ONNX Runtime GPU 版 1.20.1。第三方库路径统一在 `opencv_onnx_paths.props`
-  里改（唯一需要手改的文件）。
+  ONNX Runtime GPU 版 1.20.1。首次编译前把 `opencv_onnx_paths.props.example`
+  复制为 `opencv_onnx_paths.props` 并改成本机库路径（全工程唯一需要手改的
+  文件；它含本机绝对路径，不入库，各机器各自维护）。
 - 随软件分发的运行时 dll：
   ▸ `opencv_world480.dll`
   ▸ `onnxruntime.dll`（AI 分割必需）
@@ -310,7 +334,7 @@ horizontalEdges（2 条）:
 ```
 Calibrate_and_Measure/
 ├── Calibrate_and_Measure.sln / .vcxproj   # VS2019 (v142) 工程
-├── opencv_onnx_paths.props                # ★ 第三方库路径（唯一需要手动改的文件）
+├── opencv_onnx_paths.props.example        # ★ 库路径模板，复制为 .props 后改本机路径
 ├── config.ini                             # ★ 全工程配置（按功能分段，中文注释）
 ├── main.cpp                               # 菜单驱动 demo（自用调试入口）
 ├── src/
@@ -320,8 +344,8 @@ Calibrate_and_Measure/
 │   ├── checkerboard/                      # 功能 1：制板
 │   ├── calibration/                       # 功能 2：标定求解 + 正射矫正器
 │   └── measure/                           # 功能 3：背景建模 / 分割（AI+传统）/ 精修 / 校正 / 测量
-├── assets/                                # 制板产物、标定 XML、ONNX 模型、测试数据
-│   └── test_data/                         # calibration/ 标定采图、input/ 待测图、output/ 结果
+├── assets/                                # 目录结构入库；制板产物、标定 XML、ONNX 模型不入库，按需分发
+│   └── test_data/                         # calibration/ 标定采图、input/ 待测图（附示例 test.jpg）、output/ 结果
 ├── docs/design/                           # 设计文档（含三大功能流程图，Mermaid + PNG）
 ├── temp/                                  # 中间产物（QA 图、背景缓存）
 ```
@@ -346,32 +370,12 @@ Calibrate_and_Measure/
 
 - 标定质量门禁：RMS ≤ 0.3px 且校正验证 mean ≤ 0.5px，越限时产物保留但返回
   失败并给中文原因（`CalibReport` 内数值照常填写）。
+- 相机未标定（标定 XML 缺失或不可用）也能跑：`[rectify] enabled=true` 但
+  加载失败时记 Warn 降级为未矫正运行，测量照常，结果仅像素值；完成标定后
+  保持开关打开即自动切换为毫米输出。
 - AI 分割模型为 `assets/weights/small.onnx`（Python 侧 RF-DETR-seg small 导出）。
 - RANSAC 随机源为 `cv::RNG(42)`，与 Python numpy PCG64(42) 统计语义等价但样本
   不同，与 Python 对拍可能存在亚像素级差异。
 - 编译时 main.cpp 可能出现 C4819/C4477 警告（MSVC 对 UTF-8 中文字面量 printf
   格式检查的误报），不影响功能。
 
-## 变更记录
-
-- 2026-09-14（2）：INTERFACE.md 并入 README，本文档成为唯一使用说明。
-- 2026-09-14：交付化封装。新增统一门面 `src/cam_api.h/.cpp`
-  （`MakeBoard`/`Calibrate`/`Measurer`/`Version`）；几何矫正内收到
-  `Measurer::Measure` 内部；标定新增 `CalibReport` 机器可读摘要；ini 相对
-  路径改按 ini 所在目录解析（不再依赖 exe 目录层级）；`MeasurePipeline` 新增
-  `UsingAi()`；`main.cpp` 重写为纯门面 demo。
-- 2026-09-09：新增 `docs/design/2026-09-09-三大功能流程图.md`，制板 / 标定 /
-  单帧测量三张 Mermaid 流程图（与代码逐模块核对），附 mmdc 渲染的 PNG 供无
-  Mermaid 环境直接查看。
-- 2026-09-08（4）：AI 分割会话创建后内置模型预热（合成灰图跑通一次完整推理，
-  消除现场首帧秒级卡顿；不加配置开关，默认即做，预热失败仅记 Warn 不影响就绪）。
-- 2026-09-08（3）：新增 `INTERFACE.md` 集成调用接口说明（制板 / 标定 / 单帧
-  测量，含 MeasureOutput 字段表与示例代码）。
-- 2026-09-08（2）：`test_data/` 并入 `assets/`；`[ai_seg] device` 新增 `auto`
-  （默认）：预检 CUDA 运行时可用才注册 CUDA EP，缺运行时静默走 CPU；新增
-  `[debug] save_intermediate` 总开关；测量 CSV 拆为 `measure_results.csv`
-  （汇总）+ `measure_edges.csv`（边明细）。
-- 2026-09-08：初版建立。自 FastBilateralNPP 工程改名重建；完成制板 / 标定 /
-  矫正 / 测量（传统链 + AI 接口）全模块移植。OpenCV 4.8.0 与 ONNX Runtime GPU
-  1.20.1 路径已配入 props；工程不直接链接 CUDA（GPU 推理由 ORT CUDA EP 承担，
-  部署机需 CUDA 12 + cuDNN 9 运行时）。

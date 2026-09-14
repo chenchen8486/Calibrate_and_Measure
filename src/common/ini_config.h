@@ -96,21 +96,24 @@ struct CheckerboardConfig {
 
 // [calibrate] 功能 2：相机标定求解
 struct CalibrateConfig {
-    std::string input_dir = "assets/test_data/calibration";  // 标定采图目录（相对工程根，菜单功能 2 用）
-    int    pattern_cols = 34;   // 内角点列数 = 制板格数 - 1
-    int    pattern_rows = 27;   // 内角点行数 = 制板格数 - 1
-    double square_x_mm  = 15.0; // 实测横向格距（毫米），用卡尺量取打印板实际值
-    double square_y_mm  = 15.0; // 实测纵向格距（毫米）
-    std::string out_xml = "assets/calibration/checkerboard_calib.xml";  // 标定结果输出文件（相对工程根）
+    std::string input_dir = "assets/test_data/calibration";  // 标定采图目录（相对 ini 目录，菜单功能 2 用）
+    int    pattern_cols = 34;   // 内角点列数；缺省跟随 [checkerboard] cols - 1（显式配置优先）
+    int    pattern_rows = 27;   // 内角点行数；缺省跟随 [checkerboard] rows - 1（显式配置优先）
+    double square_x_mm  = 15.0; // 实测横向格距（毫米）；缺省跟随 [checkerboard] square_mm，
+                                // 打印后用卡尺实测回填实际值
+    double square_y_mm  = 15.0; // 实测纵向格距（毫米），同上
+    std::string out_xml = "assets/calibration/checkerboard_calib.xml";  // 标定结果输出文件（相对 ini 目录）
     double target_mm_per_px = 0.15;  // 标定后期望的像素当量（毫米/像素），用于 QA 评估
-    std::string qa_dir = "temp/calibration_qa";  // 标定质量检查图像输出目录（相对工程根）
+    std::string qa_dir = "temp/calibration_qa";  // 标定质量检查图像输出目录（相对 ini 目录）
 };
 
 // [rectify] 功能 3 之 0)：图像几何矫正开关
 struct RectifyConfig {
     bool enabled = false;  // 是否启用畸变矫正（标定未完成时可关闭）
-    std::string calib_xml = "assets/calibration/checkerboard_calib.xml";  // 标定参数文件（相对工程根）
-    double target_mm_per_px = 0.15;  // 矫正后期望的像素当量（毫米/像素）
+    std::string calib_xml = "assets/calibration/checkerboard_calib.xml";  // 标定参数文件；
+                                // 缺省跟随 [calibrate] out_xml（相对 ini 目录，显式配置优先）
+    double target_mm_per_px = 0.15;  // 矫正后期望的像素当量（毫米/像素）；
+                                // 缺省跟随 [calibrate] target_mm_per_px
 };
 
 // [paths] 通用路径

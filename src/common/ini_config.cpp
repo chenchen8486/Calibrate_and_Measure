@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 
@@ -294,19 +295,33 @@ bool AppConfig::LoadFromIni(const std::string& iniPath, std::string& errMsg) {
     checkerboard.out_dir    = ini.GetString("checkerboard", "out_dir", checkerboard.out_dir);
 
     // [calibrate] 功能 2：标定
+    // 联动规则：内角点/标称格距缺省跟随 [checkerboard] 制板参数（pattern =
+    // cols-1 x rows-1，标称格距 = square_mm），段内显式配置的键优先。
+    // 实测格距（卡尺量打印实物）与标称值不同才需显式回填 square_x_mm/square_y_mm。
     calibrate.input_dir     = ini.GetString("calibrate", "input_dir", calibrate.input_dir);
-    calibrate.pattern_cols  = ini.GetInt("calibrate", "pattern_cols", calibrate.pattern_cols);
-    calibrate.pattern_rows  = ini.GetInt("calibrate", "pattern_rows", calibrate.pattern_rows);
-    calibrate.square_x_mm   = ini.GetDouble("calibrate", "square_x_mm", calibrate.square_x_mm);
-    calibrate.square_y_mm   = ini.GetDouble("calibrate", "square_y_mm", calibrate.square_y_mm);
+    calibrate.pattern_cols  = ini.GetInt("calibrate", "pattern_cols", checkerboard.cols - 1);
+    calibrate.pattern_rows  = ini.GetInt("calibrate", "pattern_rows", checkerboard.rows - 1);
+    calibrate.square_x_mm   = ini.GetDouble("calibrate", "square_x_mm", checkerboard.square_mm);
+    calibrate.square_y_mm   = ini.GetDouble("calibrate", "square_y_mm", checkerboard.square_mm);
     calibrate.out_xml       = ini.GetString("calibrate", "out_xml", calibrate.out_xml);
     calibrate.target_mm_per_px = ini.GetDouble("calibrate", "target_mm_per_px", calibrate.target_mm_per_px);
     calibrate.qa_dir        = ini.GetString("calibrate", "qa_dir", calibrate.qa_dir);
+    if (!ini.Has("calibrate", "pattern_cols") || !ini.Has("calibrate", "pattern_rows") ||
+        !ini.Has("calibrate", "square_x_mm") || !ini.Has("calibrate", "square_y_mm")) {
+        char sqBuf[64];
+        std::snprintf(sqBuf, sizeof(sqBuf), "%g", calibrate.square_x_mm);
+        LogMsg(LINFO, "标定参数缺省项跟随 [checkerboard]: 内角点 " +
+               std::to_string(calibrate.pattern_cols) + "x" +
+               std::to_string(calibrate.pattern_rows) + "，标称格距 " +
+               sqBuf + " mm");
+    }
 
     // [rectify] 功能 3 之 0)：几何矫正
+    // 联动规则：标定文件/正射刻度缺省跟随 [calibrate] 的产物配置（out_xml /
+    // target_mm_per_px），段内显式配置的键优先。
     rectify.enabled    = ini.GetBool("rectify", "enabled", rectify.enabled);
-    rectify.calib_xml  = ini.GetString("rectify", "calib_xml", rectify.calib_xml);
-    rectify.target_mm_per_px = ini.GetDouble("rectify", "target_mm_per_px", rectify.target_mm_per_px);
+    rectify.calib_xml  = ini.GetString("rectify", "calib_xml", calibrate.out_xml);
+    rectify.target_mm_per_px = ini.GetDouble("rectify", "target_mm_per_px", calibrate.target_mm_per_px);
 
     // [paths] 通用路径
     paths.input_dir       = ini.GetString("paths", "input_dir", paths.input_dir);

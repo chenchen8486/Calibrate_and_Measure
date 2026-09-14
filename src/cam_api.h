@@ -80,8 +80,9 @@ public:
     //   3) 分割器：segmentation.method=="ai" 时创建 ONNX 会话并完成
     //      预热（消除首帧卡顿）；模型缺失/加载失败自动回退传统分割
     //      并记 Warn，Init 仍成功（可用 UsingAi() 确认实际生效链路）；
-    //   4) rectify.enabled=true 时加载标定 XML 构建正射 remap 表，
-    //      加载失败 Init 返回 false。
+    //   4) rectify.enabled=true 时加载标定 XML 构建正射 remap 表；
+    //      相机未标定/标定文件缺失时记 Warn 降级为未矫正运行，Init 仍成功，
+    //      测量照常（结果仅像素值），用 RectifyEnabled() 确认实际状态。
     // @param iniPath 配置文件路径
     // @param errMsg  输出参数：失败时的中文原因
     // @return 初始化成功返回 true
