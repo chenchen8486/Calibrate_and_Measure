@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ============================================================================
-  opencv_onnx_paths.props：第三方库路径集中配置（全工程唯一需要手动维护的文件）
+  opencv_onnx_paths.props.example：第三方库路径配置模板
+  ============================================================================
+  使用方法：复制本文件为 opencv_onnx_paths.props（同目录），再把下面两个宏
+  改成本机实际路径。opencv_onnx_paths.props 不入库，各机器各自维护。
   ============================================================================
   拿到新机器或升级库版本时，只需修改下面两个宏：
     OPENCV_DIR       : OpenCV 4.8.0 的 build 目录（其下应有 include/ 与 x64/vc16/）
@@ -23,9 +26,9 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Label="ThirdPartyPaths">
     <!-- ★★★ 用户必填：OpenCV 4.8.0 build 目录 ★★★ -->
-    <OPENCV_DIR>D:\3_package\dev_config\opencv\build</OPENCV_DIR>
+    <OPENCV_DIR>C:\path\to\opencv\build</OPENCV_DIR>
     <!-- ★★★ 用户必填：ONNX Runtime（GPU 版）根目录 ★★★ -->
-    <ONNXRUNTIME_DIR>D:\3_package\dev_config\onnxruntime-gpu</ONNXRUNTIME_DIR>
+    <ONNXRUNTIME_DIR>C:\path\to\onnxruntime-gpu</ONNXRUNTIME_DIR>
 
     <!-- 以下派生宏一般无需修改；库版本号变化时才需要动 -->
     <OPENCV_INCLUDE>$(OPENCV_DIR)\include</OPENCV_INCLUDE>

@@ -3,9 +3,28 @@
 x64/
 *.user
 
+# 本机第三方库路径配置（含绝对路径，各机器复制 opencv_onnx_paths.props.example 自行维护）
+opencv_onnx_paths.props
+
 # 本地临时文件（背景模型缓存、流程图中间稿等）
 temp/
 
-# 大体积数据与模型权重（不入库，按需分发）
-assets/test_data/
-assets/weights/
+# assets 只保留目录结构与示例图，数据与模型权重不入库（按需随包分发）
+assets/checkerboard/*
+!assets/checkerboard/.gitkeep
+
+assets/calibration/*
+!assets/calibration/.gitkeep
+
+assets/weights/*
+!assets/weights/.gitkeep
+
+assets/test_data/input/*
+!assets/test_data/input/.gitkeep
+!assets/test_data/input/test.jpg
+
+assets/test_data/calibration/*
+!assets/test_data/calibration/.gitkeep
+
+assets/test_data/output/*
+!assets/test_data/output/.gitkeep
