@@ -250,17 +250,28 @@ std::string FindProjectRoot() {
     return root + "\\";
 }
 
+std::string ResolvePath(const std::string& p, const std::string& baseDir) {
+    if (p.empty() || IsAbsolutePath(p)) {
+        return p;
+    }
+    // 拼接时去掉相对路径开头的分隔符与基准目录结尾的分隔符，避免双分隔符
+    std::string rel = p;
+    while (!rel.empty() && (rel.front() == '/' || rel.front() == '\\')) {
+        rel.erase(rel.begin());
+    }
+    std::string base = baseDir;
+    while (!base.empty() && (base.back() == '/' || base.back() == '\\')) {
+        base.pop_back();
+    }
+    return base + "\\" + rel;
+}
+
 std::string ResolvePath(const std::string& p) {
     if (p.empty() || IsAbsolutePath(p)) {
         return p;
     }
     std::string root = FindProjectRoot();
-    // 拼接时去掉相对路径开头的分隔符，避免出现双分隔符
-    std::string rel = p;
-    while (!rel.empty() && (rel.front() == '/' || rel.front() == '\\')) {
-        rel.erase(rel.begin());
-    }
-    return root + rel;
+    return ResolvePath(p, root);
 }
 
 // ---------------------------------------------------------------------------
@@ -352,16 +363,18 @@ bool AppConfig::LoadFromIni(const std::string& iniPath, std::string& errMsg) {
     // [debug] 中间结果落盘开关
     debug.save_intermediate = ini.GetBool("debug", "save_intermediate", debug.save_intermediate);
 
-    // 路径类字段统一解析为绝对路径（相对工程根）
-    checkerboard.out_dir  = ResolvePath(checkerboard.out_dir);
-    calibrate.input_dir   = ResolvePath(calibrate.input_dir);
-    calibrate.out_xml     = ResolvePath(calibrate.out_xml);
-    calibrate.qa_dir      = ResolvePath(calibrate.qa_dir);
-    rectify.calib_xml     = ResolvePath(rectify.calib_xml);
-    paths.input_dir       = ResolvePath(paths.input_dir);
-    paths.output_dir      = ResolvePath(paths.output_dir);
-    paths.background_file = ResolvePath(paths.background_file);
-    ai_seg.onnx_model     = ResolvePath(ai_seg.onnx_model);
+    // 路径类字段统一解析为绝对路径（相对 ini 文件所在目录；
+    // iniPath 本身为相对路径时先按旧规则相对工程根解析再取目录）
+    const std::string iniDir = ParentDir(ResolvePath(iniPath));
+    checkerboard.out_dir  = ResolvePath(checkerboard.out_dir, iniDir);
+    calibrate.input_dir   = ResolvePath(calibrate.input_dir, iniDir);
+    calibrate.out_xml     = ResolvePath(calibrate.out_xml, iniDir);
+    calibrate.qa_dir      = ResolvePath(calibrate.qa_dir, iniDir);
+    rectify.calib_xml     = ResolvePath(rectify.calib_xml, iniDir);
+    paths.input_dir       = ResolvePath(paths.input_dir, iniDir);
+    paths.output_dir      = ResolvePath(paths.output_dir, iniDir);
+    paths.background_file = ResolvePath(paths.background_file, iniDir);
+    ai_seg.onnx_model     = ResolvePath(ai_seg.onnx_model, iniDir);
 
     LogMsg(LINFO, "全工程配置加载完成: " + iniPath);
     return true;

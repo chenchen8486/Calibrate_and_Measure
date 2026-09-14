@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\cam_api.cpp" />
     <ClCompile Include="src\common\ini_config.cpp"><Filter>Source Files\common</Filter></ClCompile>
     <ClCompile Include="src\common\image_io.cpp"><Filter>Source Files\common</Filter></ClCompile>
     <ClCompile Include="src\checkerboard\board_generator.cpp"><Filter>Source Files\checkerboard</Filter></ClCompile>
@@ -35,6 +36,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\measure_types.h" />
+    <ClInclude Include="src\cam_api.h" />
     <ClInclude Include="src\common\ini_config.h"><Filter>Source Files\common</Filter></ClInclude>
     <ClInclude Include="src\common\image_io.h"><Filter>Source Files\common</Filter></ClInclude>
     <ClInclude Include="src\common\logger.h"><Filter>Source Files\common</Filter></ClInclude>

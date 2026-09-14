@@ -46,6 +46,10 @@ public:
     // 流水线是否就绪（Init 成功后为 true）
     bool IsReady() const;
 
+    // 实际生效的分割方式是否为 AI 链（segmentation.method=="ai" 但模型
+    // 缺失/加载失败时会自动回退传统分割，此时返回 false；供门面层上报）
+    bool UsingAi() const { return useAi_; }
+
     // 纯测量流程：输入一帧图像，输出 5 个测量值
     // （widthPx / heightPx / 上半部分候选水平边列表）在 MeasureOutput 中。
     //

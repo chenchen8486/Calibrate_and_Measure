@@ -1,0 +1,120 @@
+#pragma once
+// ============================================================================
+// cam_api.h —— Calibrate_and_Measure 对外统一门面（集成交付唯一入口）
+// ----------------------------------------------------------------------------
+// 软件同事接入本工程只需要 include 本头文件。三大功能：
+//   功能 1 制板：MakeBoard        —— 生成标定板打印三件套（PDF/预览图/打印说明）
+//   功能 2 标定：Calibrate        —— 采图求解标定 XML，返回机器可读质量摘要
+//   功能 3 测量：Measurer 类      —— Init 一次（重资源）后逐帧 Measure
+//
+// 设计约定：
+//   1. 所有函数以 ini 配置文件路径为配置入口，显式传参，无任何隐式全局状态；
+//      ini 内的相对路径一律相对 ini 文件所在目录解析，ini 可放任意位置。
+//   2. 错误模型统一：初始化类调用返回 bool + errMsg（中文原因）；
+//      逐帧测量返回 MeasureOutput（code 四档 + message），见 measure_types.h。
+//   3. 几何矫正（rectify.enabled=true 时）由 Measurer 内部完成，调用方只传
+//      相机原图，不需要也不应该自己先调 Rectifier（标定文件一致性由门面保证）。
+//   4. Measurer 非线程安全，多相机场景请每相机一个实例并各自串行调用。
+// ============================================================================
+
+#include <string>
+#include <vector>
+
+#include <opencv2/core.hpp>
+
+#include "calibration/calibrator.h"    // CalibReport
+#include "calibration/rectifier.h"     // Rectifier
+#include "common/ini_config.h"         // common::AppConfig
+#include "measure/measure_pipeline.h"  // MeasurePipeline
+#include "measure_types.h"             // MeasureOutput
+
+namespace cam {
+
+// 门面版本号（随接口变更递增）
+// @return 版本串，当前 "2.0.0"
+const char* Version();
+
+// ---------------------------------------------------------------------------
+// 功能 1：生成棋盘格标定板打印文件
+// 读取 iniPath 的 [checkerboard] 段，在 out_dir 下生成：
+//   checkerboard.pdf（矢量打印）、checkerboard_preview.png（人工核对）、
+//   打印说明.txt（交打印店）
+// @param iniPath 配置文件路径
+// @param errMsg  输出参数：失败时的中文原因
+// @return 成功返回 true
+// ---------------------------------------------------------------------------
+bool MakeBoard(const std::string& iniPath, std::string& errMsg);
+
+// ---------------------------------------------------------------------------
+// 功能 2：棋盘格标定求解
+// 传入 1~n 张棋盘格采图（多图固定机位，角点自动取均值降噪），求解并写出
+// 标定 XML（[calibrate] out_xml），同时输出 QA 质检图与验证闭环统计。
+// 质量门禁：RMS ≤ 0.3px 且正射验证 mean ≤ 0.5px；越限返回 false 但
+// 标定文件与 QA 图仍保留，report 内数值可用于上位机展示偏差。
+// @param boardImages 棋盘格采图列表（8UC1/8UC3/8UC4，尺寸须一致）
+// @param iniPath     配置文件路径
+// @param report      可选输出参数：标定摘要（rms/验证残差/输出路径），
+//                    传 nullptr 忽略；失败时已知字段也会尽量填写
+// @param errMsg      输出参数：失败或质量偏低时的中文描述
+// @return 标定成功且质量达标返回 true
+// ---------------------------------------------------------------------------
+bool Calibrate(const std::vector<cv::Mat>& boardImages, const std::string& iniPath,
+               CalibReport* report, std::string& errMsg);
+
+// ---------------------------------------------------------------------------
+// 功能 3：测量会话（重资源持有者）
+// 生命周期：构造 → Init（一次性，秒级）→ 逐帧 Measure → 析构自动释放。
+// ---------------------------------------------------------------------------
+class Measurer {
+public:
+    Measurer();
+    ~Measurer();
+    Measurer(const Measurer&) = delete;
+    Measurer& operator=(const Measurer&) = delete;
+
+    // 一次性初始化（首次调用耗时秒级，之后 Measure 为正常单帧耗时）：
+    //   1) 加载 iniPath 全部配置（相对路径按 ini 所在目录解析）；
+    //   2) 背景建模：paths.background_file 缓存优先，否则用
+    //      paths.input_dir 全量图现建并写缓存（交付现场可随包分发
+    //      预生成缓存，免放全量输入图）；
+    //   3) 分割器：segmentation.method=="ai" 时创建 ONNX 会话并完成
+    //      预热（消除首帧卡顿）；模型缺失/加载失败自动回退传统分割
+    //      并记 Warn，Init 仍成功（可用 UsingAi() 确认实际生效链路）；
+    //   4) rectify.enabled=true 时加载标定 XML 构建正射 remap 表，
+    //      加载失败 Init 返回 false。
+    // @param iniPath 配置文件路径
+    // @param errMsg  输出参数：失败时的中文原因
+    // @return 初始化成功返回 true
+    bool Init(const std::string& iniPath, std::string& errMsg);
+
+    // 是否就绪（Init 成功后为 true）
+    bool IsReady() const { return ready_; }
+
+    // 单帧测量：内部按需完成 正射矫正 → 分割 → 两级旋转校正 →
+    // 宽高测量 + 上半部分水平边排名。调用方只传相机原图。
+    // @param image    输入图像，8UC1/8UC3/8UC4；矫正开启时尺寸须与标定采图一致
+    // @param debugTag 调试图标识（一般用图像名去扩展名）；仅当 ini [debug]
+    //                 save_intermediate=true 且本参数非空时落过程图，
+    //                 部署置 false 即零中间文件
+    // @return MeasureOutput：code==OK 时 width/height/horizontalEdges 有效
+    MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
+
+    // 几何矫正是否生效
+    bool RectifyEnabled() const;
+
+    // 毫米换算系数：毫米 = 像素 × MmPerPx()；矫正关闭时返回 0（仅像素结果）
+    double MmPerPx() const;
+
+    // 实际生效的分割是否 AI 链（AI 加载失败回退传统后为 false）
+    bool UsingAi() const;
+
+    // 全量配置（只读；调试/上位机展示用）
+    const common::AppConfig& Config() const;
+
+private:
+    MeasurePipeline pipe_;       // 纯测量流水线
+    Rectifier       rectifier_;  // 正射矫正器（rectify.enabled=true 时就绪）
+    bool            ready_ = false;
+};
+
+}  // namespace cam

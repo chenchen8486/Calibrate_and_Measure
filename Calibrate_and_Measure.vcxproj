@@ -93,6 +93,7 @@ xcopy /Y /D "$(ONNXRUNTIME_LIB_DIR)\onnxruntime*.dll" "$(OutDir)"</Command>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\measure_types.h" />
+    <ClInclude Include="src\cam_api.h" />
     <ClInclude Include="src\common\ini_config.h" />
     <ClInclude Include="src\common\image_io.h" />
     <ClInclude Include="src\common\logger.h" />
@@ -109,6 +110,7 @@ xcopy /Y /D "$(ONNXRUNTIME_LIB_DIR)\onnxruntime*.dll" "$(OutDir)"</Command>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\cam_api.cpp" />
     <ClCompile Include="src\common\ini_config.cpp" />
     <ClCompile Include="src\common\image_io.cpp" />
     <ClCompile Include="src\checkerboard\board_generator.cpp" />

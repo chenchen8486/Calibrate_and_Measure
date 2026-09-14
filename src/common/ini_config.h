@@ -4,7 +4,9 @@
 // 约定：
 //   1. ini 文本按 utf-8 读取，可容忍 utf-8-sig BOM（EF BB BF）；
 //   2. 支持 [section]、key = value、# 与 ; 行注释及行尾注释、键值两侧空白修剪；
-//   3. ini 中所有相对路径一律相对"工程根目录"解析（见 FindProjectRoot）。
+//   3. ini 中所有相对路径一律相对"ini 文件所在目录"解析（LoadFromIni 行为）；
+//      旧行为"相对工程根目录（exe 上两级）"仅保留在 FindProjectRoot 与
+//      单参 ResolvePath 中，供 demo 入口定位默认 config.ini 使用。
 // ============================================================================
 
 #include <map>
@@ -69,6 +71,14 @@ std::string FindProjectRoot();
 // @return 解析后的绝对路径
 std::string ResolvePath(const std::string& p);
 
+// 将路径 p 相对指定基准目录解析为绝对路径（集成交付用：
+// AppConfig::LoadFromIni 以 ini 文件所在目录为基准调用本重载，
+// 调用方把 ini 放任意位置都能正确解析其中的相对路径）
+// @param p       待解析路径（相对或绝对）
+// @param baseDir 相对路径的基准目录（结尾有无分隔符均可）
+// @return 解析后的绝对路径
+std::string ResolvePath(const std::string& p, const std::string& baseDir);
+
 // ---------------------------------------------------------------------------
 // 全工程配置结构体（按功能分组，默认值即出厂参数）
 // ---------------------------------------------------------------------------
@@ -117,7 +127,7 @@ struct SegmentationConfig {
 
 // [ai_seg] AI 分割（ONNX Runtime 推理）
 struct AiSegConfig {
-    std::string onnx_model = "assets/weights/seg_model.onnx";  // ONNX 模型文件（相对工程根）
+    std::string onnx_model = "assets/weights/small.onnx";  // ONNX 模型文件（相对 ini 目录）
     double threshold    = 0.3;   // 前景概率阈值（0~1），越低召回越高
     double expand_ratio = 0.08;  // 掩码外扩比例（相对目标尺寸），保证边缘完整保留
     bool   refine       = true;  // 是否在 AI 掩码基础上做形态学精修
@@ -194,7 +204,8 @@ struct AppConfig {
     DebugConfig         debug;         // 中间结果落盘开关
 
     // 从 ini 文件加载配置；缺失的段/键保留默认值
-    // 路径类字段读取后自动经 ResolvePath 转为绝对路径
+    // 路径类字段读取后自动经 ResolvePath 转为绝对路径，
+    // 相对路径以 ini 文件所在目录为基准
     // @param iniPath ini 文件路径
     // @param errMsg  输出参数：失败时的中文错误描述
     // @return 加载成功返回 true

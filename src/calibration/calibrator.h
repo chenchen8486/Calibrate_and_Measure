@@ -25,6 +25,17 @@
 namespace cam {
 
 // ---------------------------------------------------------------------------
+// 标定摘要（机器可读，供门面层与上位机做质量判定；失败时部分字段可能未填，
+// 未填字段保持默认值 0 / 空串）
+// ---------------------------------------------------------------------------
+struct CalibReport {
+    double rms = 0.0;          // RMS 重投影误差（px）
+    double verifyMeanPx = 0.0; // 正射验证闭环平均残差（px）
+    double verifyP95Px = 0.0;  // 正射验证闭环 p95 残差（px）
+    std::string xmlPath;       // 标定文件实际输出路径（配置读取后即填）
+};
+
+// ---------------------------------------------------------------------------
 // 标定结果数据结构（与 XML 落盘字段一一对应；created 时间串仅写入 XML，
 // 不回读进本结构体）
 // ---------------------------------------------------------------------------
@@ -72,9 +83,11 @@ bool SolveAndSaveCalibration(const std::vector<std::vector<cv::Point2f>>& corner
 //       → 总质量门禁（rms>0.3 或验证 mean_px>0.5 时返回 false，文件与 QA 图仍输出）
 // @param boardImage 棋盘格标定板采图（吸风展平、生产同条件）
 // @param iniPath    全工程 ini 配置文件路径
+// @param report     可选输出参数：标定摘要（rms/验证残差/输出路径），传 nullptr 忽略
 // @param errMsg     输出参数：失败或质量偏低时的中文描述
 // @return 标定成功且质量达标返回 true
-bool BuildCalibrationFile(const cv::Mat& boardImage, const std::string& iniPath, std::string& errMsg);
+bool BuildCalibrationFile(const cv::Mat& boardImage, const std::string& iniPath,
+                          CalibReport* report, std::string& errMsg);
 
 // 功能 2 多图入口：给定多张棋盘格采图（固定机位），角点取均值后求解并生成标定 XML
 // 多张采图逐张 DetectBoardCorners，任一失败即整体失败并在 errMsg 中报告是哪一张；
@@ -82,10 +95,12 @@ bool BuildCalibrationFile(const cv::Mat& boardImage, const std::string& iniPath,
 // 完全一致，QA 质检图与验证闭环使用第一张图作为代表图
 // @param boardImages 棋盘格标定板采图列表（8/24/32 通道均可，尺寸须一致；空列表返回 false）
 // @param iniPath     全工程 ini 配置文件路径
+// @param report      可选输出参数：标定摘要（rms/验证残差/输出路径），传 nullptr 忽略
 // @param errMsg      输出参数：失败或质量偏低时的中文描述
 // @return 标定成功且质量达标返回 true
 bool BuildCalibrationFileFromImages(const std::vector<cv::Mat>& boardImages,
-                                    const std::string& iniPath, std::string& errMsg);
+                                    const std::string& iniPath,
+                                    CalibReport* report, std::string& errMsg);
 
 // 加载标定 XML（功能 3 矫正模块使用）
 // 读取后做完整性校验与类型归一：camera_matrix 3x3 CV_64F、dist_coeffs 1x5 CV_64F、

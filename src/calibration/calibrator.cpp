@@ -402,13 +402,15 @@ namespace {
 // @param saveQa      是否落盘 QA 质检图（[debug] save_intermediate 开关）
 // @param solveOk     SolveAndSaveCalibration 的返回值（false 多为 rms 门禁触发，文件已写出）
 // @param solveErr    SolveAndSaveCalibration 的错误描述
+// @param report      可选输出参数：标定摘要（rms/验证残差），传 nullptr 忽略；
+//                    失败时也尽量填写已知字段（验证未完成时 verify* 保持 0）
 // @param errMsg      输出参数：失败或质量偏低时的中文描述
 // @return 标定成功且质量达标返回 true
 bool FinishCalibrationAndQa(const cv::Mat& gray,
                             const std::vector<std::vector<cv::Point2f>>& cornersList,
                             const common::CalibrateConfig& cfg, bool saveQa,
                             bool solveOk, const std::string& solveErr,
-                            std::string& errMsg) {
+                            CalibReport* report, std::string& errMsg) {
     errMsg.clear();
     const cv::Size pattern(cfg.pattern_cols, cfg.pattern_rows);
     const std::vector<cv::Point2f> corners = MeanCorners(cornersList);
@@ -421,6 +423,9 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
         errMsg = solveOk ? ("标定文件回读失败: " + loadErr) : solveErr;
         common::LogMsg(common::LERROR, errMsg);
         return false;
+    }
+    if (report) {
+        report->rms = calib.rms;
     }
 
     // ---- 2. 创建 QA 目录（工程约定路径均为 ASCII；[debug] 关闭时跳过全部 QA 图）----
@@ -523,6 +528,10 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
         stats.max_px = MaxOf(err2);
         stats.mean_mm = stats.mean_px * rect.MmPerPx();
         stats.max_mm = stats.max_px * rect.MmPerPx();
+        if (report) {
+            report->verifyMeanPx = stats.mean_px;
+            report->verifyP95Px = stats.p95_px;
+        }
 
         // 行/列直线度：每行/列角点拟合直线后的最大垂直偏差
         std::vector<std::vector<int>> rowIdx(pattern.height), colIdx(pattern.width);
@@ -582,14 +591,20 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
 }  // namespace
 
 bool BuildCalibrationFile(const cv::Mat& boardImage, const std::string& iniPath,
-                          std::string& errMsg) {
+                          CalibReport* report, std::string& errMsg) {
     errMsg.clear();
+    if (report) {
+        *report = CalibReport{};
+    }
 
     // ---- 1. 读取 [calibrate] 段配置（路径字段已被 LoadFromIni 解析为绝对路径）----
     common::CalibrateConfig cfg;
     bool saveQa = true;
     if (!LoadCalibrateConfig(iniPath, cfg, saveQa, errMsg)) {
         return false;  // errMsg 已由 LoadCalibrateConfig 填写
+    }
+    if (report) {
+        report->xmlPath = cfg.out_xml;
     }
     const cv::Size pattern(cfg.pattern_cols, cfg.pattern_rows);
 
@@ -613,12 +628,17 @@ bool BuildCalibrationFile(const cv::Mat& boardImage, const std::string& iniPath,
         SolveAndSaveCalibration({corners}, gray.size(), cfg, solveErr);
 
     // ---- 5. 收尾：回读自检 → QA 图 → 验证闭环 → 总质量门禁（与多图入口共用）----
-    return FinishCalibrationAndQa(gray, {corners}, cfg, saveQa, solveOk, solveErr, errMsg);
+    return FinishCalibrationAndQa(gray, {corners}, cfg, saveQa, solveOk, solveErr,
+                                  report, errMsg);
 }
 
 bool BuildCalibrationFileFromImages(const std::vector<cv::Mat>& boardImages,
-                                    const std::string& iniPath, std::string& errMsg) {
+                                    const std::string& iniPath,
+                                    CalibReport* report, std::string& errMsg) {
     errMsg.clear();
+    if (report) {
+        *report = CalibReport{};
+    }
 
     // ---- 0. 空列表早退 ----
     if (boardImages.empty()) {
@@ -632,6 +652,9 @@ bool BuildCalibrationFileFromImages(const std::vector<cv::Mat>& boardImages,
     bool saveQa = true;
     if (!LoadCalibrateConfig(iniPath, cfg, saveQa, errMsg)) {
         return false;  // errMsg 已由 LoadCalibrateConfig 填写
+    }
+    if (report) {
+        report->xmlPath = cfg.out_xml;
     }
     const cv::Size pattern(cfg.pattern_cols, cfg.pattern_rows);
 
@@ -676,7 +699,7 @@ bool BuildCalibrationFileFromImages(const std::vector<cv::Mat>& boardImages,
 
     // ---- 4. 收尾：QA 与验证闭环以第一张图为代表图（与单图入口共用）----
     return FinishCalibrationAndQa(grayFirst, cornersList, cfg, saveQa, solveOk, solveErr,
-                                  errMsg);
+                                  report, errMsg);
 }
 
 bool LoadCalibrationXml(const std::string& xmlPath, CalibrationResult& out,

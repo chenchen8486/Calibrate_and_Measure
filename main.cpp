@@ -1,17 +1,19 @@
 // ============================================================================
-// main.cpp —— Calibrate_and_Measure 菜单驱动入口
+// main.cpp —— Calibrate_and_Measure 菜单驱动 demo（自用调试入口）
 //
-// 本工程三大功能（全部配置集中在工程根目录 config.ini，注释见文件内说明）：
-//   功能 1：生成棋盘格标定板打印文件（checkerboard.pdf / 预览图 / 打印说明.txt）
-//   功能 2：棋盘格标定求解（采图 → 标定 XML + QA 质检图）
-//   功能 3：批量图像测量（可选几何矫正 → AI/传统分割 → 宽高与水平边测量）
+// 本文件只是对外门面 src/cam_api.h 的演示调用方，供开发调试使用：
+//   功能 1：生成棋盘格标定板打印文件（cam::MakeBoard）
+//   功能 2：棋盘格标定求解（cam::Calibrate；单图/多图自动区分）
+//   功能 3：批量图像测量（cam::Measurer：Init 一次 → 逐帧 Measure）
+//
+// 集成方请勿以本文件为接口参考，统一入口见 src/cam_api.h，调用约定见 README.md；
+// CSV 双表输出属于 demo 的报表行为，集成方按需自行实现。
 //
 // 用法：
 //   1. 无参数运行进入交互菜单；
 //   2. 把一张棋盘格采图拖到 exe 上（命令行第一个参数为图片路径），
 //      等价于菜单功能 2 的单图标定。
-//
-// 菜单每次执行功能都会重新读取 config.ini，改完配置直接再选功能即可生效。
+// demo 约定：配置文件固定取工程根目录 config.ini（FindProjectRoot 定位）。
 // ============================================================================
 
 #include <windows.h>  // SetConsoleOutputCP
@@ -24,14 +26,9 @@
 
 #include <opencv2/core.hpp>
 
+#include "cam_api.h"
 #include "common/image_io.h"
 #include "common/ini_config.h"
-#include "common/logger.h"
-#include "checkerboard/board_generator.h"
-#include "calibration/calibrator.h"
-#include "calibration/rectifier.h"
-#include "measure/measure_pipeline.h"
-#include "measure_types.h"
 
 namespace {
 
@@ -45,7 +42,7 @@ void SetupConsole() {
     SetConsoleCP(CP_UTF8);
 }
 
-// 全工程 ini 配置文件路径（工程根目录下的 config.ini）
+// demo 默认配置文件：工程根目录下的 config.ini
 std::string IniPath() {
     return common::FindProjectRoot() + "config.ini";
 }
@@ -53,7 +50,9 @@ std::string IniPath() {
 void PrintMenu() {
     std::cout << "\n"
                  "============================================================\n"
-                 "  Calibrate_and_Measure  标定与测量系统\n"
+                 "  Calibrate_and_Measure  标定与测量系统（demo v"
+              << cam::Version() <<
+                 "）\n"
                  "============================================================\n"
                  "  配置文件: " << IniPath() << "\n"
                  "------------------------------------------------------------\n"
@@ -70,7 +69,7 @@ void PrintMenu() {
 // ---------------------------------------------------------------------------
 void RunMakeBoard() {
     std::string err;
-    if (cam::GenerateCheckerboardBoard(IniPath(), err)) {
+    if (cam::MakeBoard(IniPath(), err)) {
         std::cout << "[成功] 标定板文件已生成（详见上方日志中的输出目录）。" << std::endl;
     } else {
         std::cout << "[失败] " << err << std::endl;
@@ -81,22 +80,25 @@ void RunMakeBoard() {
 // 功能 2：棋盘格标定（单图或多图）
 // ---------------------------------------------------------------------------
 
-// 对给定图像列表执行标定（内部区分单图/多图入口）
+// 对给定图像列表执行标定（门面内部区分单图/多图入口）
 void CalibrateWithImages(const std::vector<cv::Mat>& images, const char* srcDesc) {
     std::string err;
-    bool ok = false;
-    if (images.size() == 1) {
-        std::cout << "单张采图标定: " << srcDesc << std::endl;
-        ok = cam::BuildCalibrationFile(images[0], IniPath(), err);
+    cam::CalibReport report;
+    std::cout << "共 " << images.size() << " 张采图（" << srcDesc << "）。" << std::endl;
+    if (cam::Calibrate(images, IniPath(), &report, err)) {
+        char line[512];
+        std::snprintf(line, sizeof(line), "RMS %.4f px, verify mean %.3f px, p95 %.3f px",
+                      report.rms, report.verifyMeanPx, report.verifyP95Px);
+        std::cout << "[成功] 标定完成: " << line << "\n"
+                  << "        标定文件: " << report.xmlPath << "\n"
+                  << "        （QA 质检图见 config.ini 的 [calibrate] qa_dir）" << std::endl;
     } else {
-        std::cout << "共 " << images.size() << " 张采图，角点取均值降噪后标定。" << std::endl;
-        ok = cam::BuildCalibrationFileFromImages(images, IniPath(), err);
-    }
-    if (ok) {
-        std::cout << "[成功] 标定完成，标定文件与 QA 质检图已输出（见 config.ini 的 "
-                     "[calibrate] out_xml / qa_dir）。" << std::endl;
-    } else {
-        std::cout << "[未通过] " << err << std::endl;
+        // 质量门禁未过或求解失败：report 中已知数值照常打印，便于现场判断
+        char line[256];
+        std::snprintf(line, sizeof(line), "RMS %.4f px, verify mean %.3f px",
+                      report.rms, report.verifyMeanPx);
+        std::cout << "[未通过] " << err << "\n"
+                  << "        （" << line << "）" << std::endl;
     }
 }
 
@@ -190,29 +192,22 @@ void ReportOne(const std::string& imageName, const cam::MeasureOutput& out,
 }
 
 void RunMeasureBatch() {
-    const std::string ini = IniPath();
-
-    // 1) 测量流水线初始化（背景建模 + 分割器；rectify 开启时背景已同步正射校正）
-    cam::MeasurePipeline pipe;
+    // 1) 测量会话初始化（配置 + 背景建模 + 分割器预热 + 可选几何矫正，一次完成）
+    cam::Measurer measurer;
     std::string err;
-    if (!pipe.Init(ini, err)) {
-        std::cout << "[失败] 测量流水线初始化失败: " << err << std::endl;
+    if (!measurer.Init(IniPath(), err)) {
+        std::cout << "[失败] 测量初始化失败: " << err << std::endl;
         return;
     }
-    const common::AppConfig& cfg = pipe.Config();
-
-    // 2) 几何矫正模块（可选）：输入图先矫正再测量，测量函数本身不关心是否矫正
-    cam::Rectifier rectifier;
-    if (cfg.rectify.enabled) {
-        if (!rectifier.Load(cfg.rectify.calib_xml, cfg.rectify.target_mm_per_px, err)) {
-            std::cout << "[失败] 矫正模块加载失败: " << err << std::endl;
-            return;
-        }
+    const common::AppConfig& cfg = measurer.Config();
+    std::cout << "分割链路: " << (measurer.UsingAi() ? "AI（ONNX）" : "传统背景差分")
+              << std::endl;
+    if (measurer.RectifyEnabled()) {
         std::cout << "几何矫正已启用，标定文件: " << cfg.rectify.calib_xml
-                  << "，正射刻度: " << rectifier.MmPerPx() << " mm/px" << std::endl;
+                  << "，正射刻度: " << measurer.MmPerPx() << " mm/px" << std::endl;
     }
 
-    // 3) 批量处理
+    // 2) 批量处理
     const std::vector<std::string> files = common::ListImages(cfg.paths.input_dir);
     if (files.empty()) {
         std::cout << "[提示] 待测图像目录为空: " << cfg.paths.input_dir << std::endl;
@@ -255,19 +250,10 @@ void RunMeasureBatch() {
             ++failCount;
             continue;
         }
-        // 软件收到相机原图 → 先矫正 → 再测量（矫正关闭时原图直进测量）
-        if (rectifier.IsReady()) {
-            cv::Mat gray = common::ToGray8(img);
-            img = rectifier.Rectify(gray);
-            if (img.empty()) {
-                std::cout << "  [失败] 正射校正失败（图像尺寸须与标定采图一致）" << std::endl;
-                ++failCount;
-                continue;
-            }
-        }
-        // debugTag = 去扩展名的文件名，[debug] 开关打开时用于落调试图
+        // 相机原图直进：矫正（若开启）由门面内部完成；debugTag = 去扩展名的
+        // 文件名，[debug] 开关打开时用于落调试图
         const std::string tag = name.substr(0, name.find_last_of('.'));
-        const cam::MeasureOutput out = pipe.Measure(img, tag);
+        const cam::MeasureOutput out = measurer.Measure(img, tag);
         ReportOne(name, out, csv, edgesCsv);
         if (out.code == cam::RetCode::OK) {
             ++okCount;
