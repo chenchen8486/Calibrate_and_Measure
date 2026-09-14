@@ -61,7 +61,7 @@ public:
     //            旋转图与测量叠加图；否则不产生任何中间文件。
     //
     // Returns:
-    //   MeasureOutput：code==OK 时 width/height/horizontalEdges 有效；
+    //   MeasureOutput：code==OK 时 width/height/horizontalEdges/codeRegions 有效；
     //   失败时 code 取 EMPTY_IMAGE / BAD_FORMAT / NO_PRODUCT / INTERNAL，
     //   message 附中文原因。
     MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");

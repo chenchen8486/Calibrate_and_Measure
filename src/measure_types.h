@@ -59,6 +59,24 @@ struct HorizontalEdge {
     bool    satisfied = false;     // 长度是否满足 edge_width_threshold（判定不淘汰）
 };
 
+// 码类型
+enum class CodeType : int {
+    QR  = 1,    // 二维码
+    BAR = 2     // 一维码（条码）
+};
+
+// 结构体四：码区定位（产品表面二维码/一维码的轴对齐外接矩形）
+// 码随产品一起经角度校正，校正后坐标系下码为正立，矩形轴对齐。
+// confidence 约定：解码成功 1.0，仅定位成功 0.5（传统检测器无原生分数）。
+struct CodeRegion {
+    CodeType type = CodeType::QR;  // 码类型
+    double   x = 0.0;              // 外接矩形左上角 x
+    double   y = 0.0;              // 外接矩形左上角 y
+    double   w = 0.0;              // 外接矩形宽度
+    double   h = 0.0;              // 外接矩形高度
+    double   confidence = 0.0;     // 置信度 [0,1]，前端可按需过滤低分框
+};
+
 // 单帧完整测量结果
 struct MeasureOutput {
     RetCode     code = RetCode::OK;  // 返回码
@@ -70,6 +88,10 @@ struct MeasureOutput {
 
     // 结构体三：上半部分候选水平边，有多少条返回多少条，按 (y, x_left) 排序
     std::vector<HorizontalEdge> horizontalEdges;
+
+    // 结构体四：码区定位（二维码/一维码外接矩形），未检出为空 vector；
+    // 码区缺失或检测失败不视为错误（code 仍为 OK）
+    std::vector<CodeRegion> codeRegions;
 };
 
 }  // namespace cam

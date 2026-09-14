@@ -31,7 +31,7 @@
 namespace cam {
 
 // 门面版本号（随接口变更递增）
-// @return 版本串，当前 "2.0.0"
+// @return 版本串，当前 "2.1.0"
 const char* Version();
 
 // ---------------------------------------------------------------------------
@@ -92,12 +92,13 @@ public:
     bool IsReady() const { return ready_; }
 
     // 单帧测量：内部按需完成 正射矫正 → 分割 → 两级旋转校正 →
-    // 宽高测量 + 上半部分水平边排名。调用方只传相机原图。
+    // 宽高测量 + 上半部分水平边排名 + 码区（二维码/一维码）定位。
+    // 调用方只传相机原图。
     // @param image    输入图像，8UC1/8UC3/8UC4；矫正开启时尺寸须与标定采图一致
     // @param debugTag 调试图标识（一般用图像名去扩展名）；仅当 ini [debug]
     //                 save_intermediate=true 且本参数非空时落过程图，
     //                 部署置 false 即零中间文件
-    // @return MeasureOutput：code==OK 时 width/height/horizontalEdges 有效
+    // @return MeasureOutput：code==OK 时 width/height/horizontalEdges/codeRegions 有效
     MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
 
     // 几何矫正是否生效

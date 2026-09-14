@@ -375,6 +375,11 @@ bool AppConfig::LoadFromIni(const std::string& iniPath, std::string& errMsg) {
     measure.merge_gap_pts        = ini.GetInt("measure", "merge_gap_pts", measure.merge_gap_pts);
     measure.ranked_region_ratio  = ini.GetDouble("measure", "ranked_region_ratio", measure.ranked_region_ratio);
 
+    // [code_detect] 码区检测
+    code_detect.enabled      = ini.GetBool("code_detect", "enabled", code_detect.enabled);
+    code_detect.max_side     = ini.GetInt("code_detect", "max_side", code_detect.max_side);
+    code_detect.min_area_px  = ini.GetDouble("code_detect", "min_area_px", code_detect.min_area_px);
+
     // [debug] 中间结果落盘开关
     debug.save_intermediate = ini.GetBool("debug", "save_intermediate", debug.save_intermediate);
 

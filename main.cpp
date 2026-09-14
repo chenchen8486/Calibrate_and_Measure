@@ -58,7 +58,7 @@ void PrintMenu() {
                  "------------------------------------------------------------\n"
                  "  1) 生成棋盘格标定板（PDF + 预览图 + 打印说明）\n"
                  "  2) 棋盘格标定（读取 [calibrate] input_dir 采图 → 标定 XML）\n"
-                 "  3) 批量图像测量（读取 [paths] input_dir，输出宽高与水平边）\n"
+                 "  3) 批量图像测量（读取 [paths] input_dir，输出宽高、水平边与码区）\n"
                  "  q) 退出\n"
                  "------------------------------------------------------------\n"
                  "请选择: ";
@@ -149,15 +149,16 @@ void AppendSeg(std::ofstream& csv, const cam::LineSegment& s) {
 }
 
 // 把一张图的测量结果打印到控制台，并写：
-//   汇总表 measure_results.csv 一行（含宽高四线的端点坐标）；
-//   明细表 measure_edges.csv 每条候选水平边一行（端点坐标 + 长度 + 判定）。
+//   汇总表 measure_results.csv 一行（含宽高四线的端点坐标与码区数）；
+//   明细表 measure_edges.csv 每条候选水平边一行（端点坐标 + 长度 + 判定）；
+//   明细表 measure_codes.csv 每个码区一行（类型 + 外接矩形 + 置信度）。
 void ReportOne(const std::string& imageName, const cam::MeasureOutput& out,
-               std::ofstream& csv, std::ofstream& edgesCsv) {
+               std::ofstream& csv, std::ofstream& edgesCsv, std::ofstream& codesCsv) {
     if (out.code != cam::RetCode::OK) {
         std::cout << "  [失败] " << out.message << std::endl;
         csv << imageName;
-        for (int i = 0; i < 21; ++i) {
-            csv << ",";  // 20 个数值列留空 + message 列前的分隔
+        for (int i = 0; i < 22; ++i) {
+            csv << ",";  // 21 个数值列留空 + message 列前的分隔
         }
         csv << out.message << "\n";
         return;
@@ -181,9 +182,22 @@ void ReportOne(const std::string& imageName, const cam::MeasureOutput& out,
                  << "," << e.end.x << "," << e.end.y << "," << e.lengthPx << ","
                  << (e.satisfied ? 1 : 0) << "\n";
     }
+    std::printf("  %s %llu\n", "码区数:",
+                static_cast<unsigned long long>(out.codeRegions.size()));
+    for (size_t i = 0; i < out.codeRegions.size(); ++i) {
+        const cam::CodeRegion& c = out.codeRegions[i];
+        const char* typeName = (c.type == cam::CodeType::QR) ? "QR" : "BAR";
+        std::printf("    code_%llu: %s (%.2f,%.2f) %.2fx%.2f conf=%.1f\n",
+                    static_cast<unsigned long long>(i + 1), typeName, c.x, c.y, c.w,
+                    c.h, c.confidence);
+        // 码明细表：一行一个码区，类型 + 外接矩形 + 置信度
+        codesCsv << imageName << "," << (i + 1) << "," << typeName << "," << c.x << ","
+                 << c.y << "," << c.w << "," << c.h << "," << c.confidence << "\n";
+    }
     // 汇总表：宽高四线端点坐标全部落列，message 留空
     csv << imageName << "," << out.rotationDeg << "," << out.width.widthPx << ","
-        << out.height.heightPx << "," << out.horizontalEdges.size();
+        << out.height.heightPx << "," << out.horizontalEdges.size() << ","
+        << out.codeRegions.size();
     AppendSeg(csv, out.width.leftLine);
     AppendSeg(csv, out.width.rightLine);
     AppendSeg(csv, out.height.topLine);
@@ -214,7 +228,7 @@ void RunMeasureBatch() {
         return;
     }
 
-    // 汇总表：一行一张图；明细表：一行一条候选水平边（坐标/长度见明细）
+    // 汇总表：一行一张图；明细表：一行一条候选水平边 / 一个码区（坐标见明细）
     {
         std::error_code ec;
         std::filesystem::create_directories(cfg.paths.output_dir, ec);
@@ -226,9 +240,11 @@ void RunMeasureBatch() {
                       std::ios::out | std::ios::trunc);
     std::ofstream edgesCsv(cfg.paths.output_dir + "\\measure_edges.csv",
                            std::ios::out | std::ios::trunc);
+    std::ofstream codesCsv(cfg.paths.output_dir + "\\measure_codes.csv",
+                           std::ios::out | std::ios::trunc);
     if (csv.is_open()) {
         csv << "\xEF\xBB\xBF";  // utf-8-sig，Excel 打开不乱码
-        csv << "image,rotation_deg,width_px,height_px,edge_count,"
+        csv << "image,rotation_deg,width_px,height_px,edge_count,code_count,"
                "width_left_x1,width_left_y1,width_left_x2,width_left_y2,"
                "width_right_x1,width_right_y1,width_right_x2,width_right_y2,"
                "height_top_x1,height_top_y1,height_top_x2,height_top_y2,"
@@ -238,6 +254,10 @@ void RunMeasureBatch() {
     if (edgesCsv.is_open()) {
         edgesCsv << "\xEF\xBB\xBF";
         edgesCsv << "image,edge_index,x1,y1,x2,y2,length_px,satisfied\n";
+    }
+    if (codesCsv.is_open()) {
+        codesCsv << "\xEF\xBB\xBF";
+        codesCsv << "image,code_index,type,x,y,w,h,confidence\n";
     }
 
     int okCount = 0, failCount = 0;
@@ -254,7 +274,7 @@ void RunMeasureBatch() {
         // 文件名，[debug] 开关打开时用于落调试图
         const std::string tag = name.substr(0, name.find_last_of('.'));
         const cam::MeasureOutput out = measurer.Measure(img, tag);
-        ReportOne(name, out, csv, edgesCsv);
+        ReportOne(name, out, csv, edgesCsv, codesCsv);
         if (out.code == cam::RetCode::OK) {
             ++okCount;
         } else {
@@ -264,6 +284,7 @@ void RunMeasureBatch() {
     std::cout << "\n批量测量完成: 成功 " << okCount << " 张，失败 " << failCount
               << " 张。\n结果汇总: " << cfg.paths.output_dir << "\\measure_results.csv"
               << "\n边明细:   " << cfg.paths.output_dir << "\\measure_edges.csv"
+              << "\n码明细:   " << cfg.paths.output_dir << "\\measure_codes.csv"
               << std::endl;
 }
 

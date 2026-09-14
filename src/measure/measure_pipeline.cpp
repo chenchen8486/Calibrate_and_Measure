@@ -22,6 +22,7 @@
 #include "common/image_io.h"
 #include "common/logger.h"
 #include "measure/background.h"
+#include "measure/code_detect.h"
 #include "measure/edge_refine.h"
 #include "measure/measure_core.h"
 #include "measure/rectify_angle.h"
@@ -250,6 +251,13 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
                            "水平边排名测量失败（不影响宽高输出）：" + err);
             out.horizontalEdges.clear();
         }
+        // 码区缺失不视为错误（未检出返回空 vector），失败仅告警。
+        // 检测在未旋转的原始灰度图上进行（旋转插值会平滑条码细条纹导致漏检，
+        // 实测结论见 code_detect.h），检出框按校正角解析映射回校正坐标系
+        if (!DetectCodeRegions(gray, rotContour, totalAngle, cfg_.code_detect,
+                               out.codeRegions)) {
+            out.codeRegions.clear();
+        }
 
         // ---- 阶段 4：按 payload.py 约定组装输出（坐标/长度 2 位，角度 3 位）----
         out.rotationDeg = RoundTo(totalAngle, 3);
@@ -264,8 +272,15 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
             e.end = RoundPoint(e.end);
             e.lengthPx = RoundTo(e.lengthPx, 2);
         }
+        for (CodeRegion& c : out.codeRegions) {
+            c.x = RoundTo(c.x, 2);
+            c.y = RoundTo(c.y, 2);
+            c.w = RoundTo(c.w, 2);
+            c.h = RoundTo(c.h, 2);
+        }
         if (dbg) {
-            // 测量叠加图：蓝=宽度左右竖线，绿=高度上下横线，红=候选水平边（附序号）
+            // 测量叠加图：蓝=宽度左右竖线，绿=高度上下横线，红=候选水平边（附序号），
+            // 品红矩形=码区（附 QR/BAR 类型标）
             cv::Mat overlay;
             cv::cvtColor(rotAligned, overlay, cv::COLOR_GRAY2BGR);
             cv::line(overlay, ToCvPoint(out.width.leftLine.start),
@@ -283,14 +298,21 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
                 cv::putText(overlay, std::to_string(i + 1), ToCvPoint(e.start),
                             cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 255), 2);
             }
+            for (const CodeRegion& c : out.codeRegions) {
+                const cv::Rect rc(cvRound(c.x), cvRound(c.y), cvRound(c.w), cvRound(c.h));
+                cv::rectangle(overlay, rc, cv::Scalar(255, 0, 255), 2, cv::LINE_AA);
+                cv::putText(overlay, c.type == CodeType::QR ? "QR" : "BAR",
+                            rc.tl() + cv::Point(0, -6), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                            cv::Scalar(255, 0, 255), 2);
+            }
             SaveDebugImg(dbgDir, "06_measure_overlay.bmp", overlay);
         }
         out.code = RetCode::OK;
         common::LogMsg(common::LINFO,
                        Fmt("测量完成: 宽 %.2f px, 高 %.2f px, 校正角 %.3f°, "
-                           "候选水平边 %d 条",
+                           "候选水平边 %d 条, 码区 %d 个",
                            out.width.widthPx, out.height.heightPx, out.rotationDeg,
-                           (int)out.horizontalEdges.size()));
+                           (int)out.horizontalEdges.size(), (int)out.codeRegions.size()));
         return out;
     } catch (const cv::Exception& e) {
         return FailOutput(RetCode::INTERNAL,

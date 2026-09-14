@@ -101,6 +101,7 @@ xcopy /Y /D "$(ONNXRUNTIME_LIB_DIR)\onnxruntime*.dll" "$(OutDir)"</Command>
     <ClInclude Include="src\calibration\calibrator.h" />
     <ClInclude Include="src\calibration\rectifier.h" />
     <ClInclude Include="src\measure\background.h" />
+    <ClInclude Include="src\measure\code_detect.h" />
     <ClInclude Include="src\measure\segment_traditional.h" />
     <ClInclude Include="src\measure\segment_ai.h" />
     <ClInclude Include="src\measure\edge_refine.h" />
@@ -117,6 +118,7 @@ xcopy /Y /D "$(ONNXRUNTIME_LIB_DIR)\onnxruntime*.dll" "$(OutDir)"</Command>
     <ClCompile Include="src\calibration\calibrator.cpp" />
     <ClCompile Include="src\calibration\rectifier.cpp" />
     <ClCompile Include="src\measure\background.cpp" />
+    <ClCompile Include="src\measure\code_detect.cpp" />
     <ClCompile Include="src\measure\segment_traditional.cpp" />
     <ClCompile Include="src\measure\segment_ai.cpp" />
     <ClCompile Include="src\measure\edge_refine.cpp" />

@@ -183,6 +183,16 @@ struct MeasureConfig {
     double ranked_region_ratio  = 0.5;   // 有效排名区域比例（相对边缘总长）
 };
 
+// [code_detect] 码区检测（产品表面二维码/一维码外接矩形定位）
+struct CodeDetectConfig {
+    bool   enabled      = true;  // 码区检测开关（false 时 codeRegions 恒为空）
+    int    max_side     = 0;     // 检测降采样上限（像素最长边），0 = 全分辨率。
+                                 // 条码条纹对降采样敏感（5.5K 图实测 0.5 倍以下
+                                 // 检出率明显下跌），默认全分辨率最稳；高分辨率
+                                 // 相机确认检出率后可调小加速。框坐标自动映射回原图
+    double min_area_px  = 900.0; // 码框最小面积（原图尺度像素²，约 30x30），过滤噪点候选
+};
+
 // [debug] 中间结果落盘开关（功能 2 的 QA 质检图 + 功能 3 的调试图）
 struct DebugConfig {
     // true  = 保存中间结果：标定 QA 质检图（calibrate.qa_dir）、
@@ -204,6 +214,7 @@ struct AppConfig {
     RefineConfig        refine;        // 边缘精修参数
     RotateConfig        rotate;        // 角度校正参数
     MeasureConfig       measure;       // 测量参数
+    CodeDetectConfig    code_detect;   // 码区检测参数
     DebugConfig         debug;         // 中间结果落盘开关
 
     // 从 ini 文件加载配置；缺失的段/键保留默认值

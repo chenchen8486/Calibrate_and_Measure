@@ -44,7 +44,7 @@ if (out.code == cam::RetCode::OK) {
 | `MakeBoard(iniPath, errMsg)` | 功能 1：生成标定板 PDF + 预览图 + 打印说明 | 按需 |
 | `Calibrate(images, iniPath, report, errMsg)` | 功能 2：标定求解，1~n 张采图，返回 `CalibReport` | 换机位/换板时一次 |
 | `Measurer::Init(iniPath, errMsg)` | 功能 3 初始化：配置 + 背景建模 + ONNX 会话预热 + 可选矫正 | 启动时一次 |
-| `Measurer::Measure(image, debugTag)` | 功能 3 单帧测量：矫正（内部）→ 分割 → 旋转校正 → 宽高与水平边 | 逐帧 |
+| `Measurer::Measure(image, debugTag)` | 功能 3 单帧测量：矫正（内部）→ 分割 → 旋转校正 → 宽高、水平边与码区 | 逐帧 |
 | `Measurer::MmPerPx()` / `RectifyEnabled()` / `UsingAi()` | 运行形态查询与毫米换算 | 任意 |
 
 ## 3. 共同约定（三个功能都适用）
@@ -241,6 +241,18 @@ struct HorizontalEdge {              // 结构体三：上半部分一条水平�
     bool    satisfied;               // 是否通过 [measure] edge_width_threshold 宽度判定
 };
 
+enum class CodeType : int {          // 码类型
+    QR  = 1,                         // 二维码
+    BAR = 2                          // 一维码（条码）
+};
+
+struct CodeRegion {                  // 结构体四：码区定位（轴对齐外接矩形）
+    CodeType type;                   // 码类型
+    double   x, y;                   // 外接矩形左上角
+    double   w, h;                   // 外接矩形宽/高
+    double   confidence;             // 置信度 [0,1]：解码成功 1.0，仅定位 0.5
+};
+
 struct MeasureOutput {               // 单帧完整测量结果（Measure 的返回值）
     RetCode     code;                // 返回码
     std::string message;             // 失败时的中文原因，成功为空
@@ -250,6 +262,9 @@ struct MeasureOutput {               // 单帧完整测量结果（Measure 的�
     std::vector<HorizontalEdge> horizontalEdges;
                                      // 上半部分候选水平边，有多少条返回多少条，
                                      // 按 (y, x_left) 排序
+    std::vector<CodeRegion> codeRegions;
+                                     // 产品表面二维码/一维码外接矩形，未检出为空；
+                                     // 码区缺失或检测失败不视为错误（code 仍为 OK）
 };
 ```
 
@@ -266,6 +281,8 @@ y 位置，上/下横线的横向范围就是左/右竖线的 x 位置。下图�
 - 红色小段 = `horizontalEdges` 列表元素（图中红色编号即列表内顺序，
   按 (y, x_left) 排序），每条含 `start`/`end`/`lengthPx`/`satisfied`，
   `satisfied` 表示该边长度是否达到 `[measure] edge_width_threshold`。
+- 品红矩形 = `codeRegions` 码区外接矩形（附 QR/BAR 类型标；上图样例中
+  无码故未出现，调试叠加图 `06_measure_overlay.bmp` 按同一套颜色绘制）。
 - 四线端点互为边界：竖线的纵向范围取上下横线的 y 位置，横线的横向范围
   取左右竖线的 x 位置，因此四线严格围成闭合矩形。
 - `rotationDeg` 是本次测量的总校正角（度），`code`/`message` 给出成功
@@ -287,6 +304,9 @@ height.bottomLine = (320.87, 1450.61) - (1133.05, 1450.61)
 horizontalEdges（2 条）:
   [0] start=(352.10, 462.30) end=(598.44, 463.02) lengthPx=246.36 satisfied=1
   [1] start=(700.05, 462.55) end=(913.77, 463.10) lengthPx=213.73 satisfied=0
+
+codeRegions（1 个）:
+  [0] type=BAR x=1880.30 y=1150.20 w=120.45 h=330.10 confidence=1.00
 ```
 
 ## 7. 集成注意事项
@@ -297,14 +317,16 @@ horizontalEdges（2 条）:
 - 测量相关 ini 段速查：`[rectify]` 矫正开关与标定文件；`[paths]` 输入输出与
   背景缓存；`[segmentation] method` 选 `ai`（默认）或 `traditional`；
   `[trad_seg]` / `[refine]` / `[rotate]` / `[measure]` 为各算法参数，
-  默认值与 Python 版 `configs/default.yaml` 对齐。
+  默认值与 Python 版 `configs/default.yaml` 对齐；`[code_detect]` 码区检测
+  开关与参数（enabled/max_side/min_area_px）。
 
 ## 8. 配置文件
 
 - 全部参数集中在 `config.ini`，按功能分段：`[checkerboard]` 制板、
   `[calibrate]` 标定、`[rectify]` 矫正开关、`[paths]` 输入输出、
   `[segmentation]`/`[ai_seg]`/`[trad_seg]` 分割、`[refine]`/`[rotate]`/
-  `[measure]` 算法参数、`[debug]` 中间结果开关。各键中文注释见文件内。
+  `[measure]` 算法参数、`[code_detect]` 码区检测、`[debug]` 中间结果开关。
+  各键中文注释见文件内。
 - 接口以 ini 路径为配置入口，显式传参；ini 内相对路径相对 ini 文件所在
   目录解析，ini 可随软件放任意位置。
 - 段间联动：`[calibrate]` 的内角点与标称格距缺省跟随 `[checkerboard]`
@@ -374,6 +396,17 @@ Calibrate_and_Measure/
   加载失败时记 Warn 降级为未矫正运行，测量照常，结果仅像素值；完成标定后
   保持开关打开即自动切换为毫米输出。
 - AI 分割模型为 `assets/weights/small.onnx`（Python 侧 RF-DETR-seg small 导出）。
+- 码区检测（`[code_detect]`）基于 OpenCV 自带检测器：二维码用
+  `QRCodeDetector`，一维码用 `barcode::BarcodeDetector`。覆盖边界要清楚：
+  EAN/UPC 系条码可解码级检出（`confidence=1.0`，仅定位成功为 0.5）；
+  Code128、药品电子监管码等解码体系外的条码，以及印刷对比度过低的条码，
+  自带检测器定位不到（与 Python 侧实验结论一致）。需要覆盖这类码时，
+  后续走条纹纹理候选兜底或 AI 重训（分割模型加码类）路线。
+- 码区检测在未旋转的原始灰度图上进行：旋转插值会把条码细条纹抗锯齿平滑掉
+  （实测 1° warp 即全尺度漏检），检出四角点后按校正角做精确仿射映射回
+  校正坐标系，点变换无插值，不影响坐标精度。
+- `[code_detect] max_side` 默认 0（全分辨率检测）：条码条纹对降采样敏感，
+  5.5K 图实测 0.5 倍以下检出率明显下跌；高分辨率相机确认检出率后可调小加速。
 - RANSAC 随机源为 `cv::RNG(42)`，与 Python numpy PCG64(42) 统计语义等价但样本
   不同，与 Python 对拍可能存在亚像素级差异。
 - 编译时 main.cpp 可能出现 C4819/C4477 警告（MSVC 对 UTF-8 中文字面量 printf
