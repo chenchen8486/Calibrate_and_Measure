@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;h;hpp</Extensions>
+    </Filter>
+    <Filter Include="Source Files\common">
+      <UniqueIdentifier>{1A2B3C40-0001-4000-8000-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\checkerboard">
+      <UniqueIdentifier>{1A2B3C40-0002-4000-8000-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\calibration">
+      <UniqueIdentifier>{1A2B3C40-0003-4000-8000-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\measure">
+      <UniqueIdentifier>{1A2B3C40-0004-4000-8000-000000000004}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\common\ini_config.cpp"><Filter>Source Files\common</Filter></ClCompile>
+    <ClCompile Include="src\common\image_io.cpp"><Filter>Source Files\common</Filter></ClCompile>
+    <ClCompile Include="src\checkerboard\board_generator.cpp"><Filter>Source Files\checkerboard</Filter></ClCompile>
+    <ClCompile Include="src\calibration\calibrator.cpp"><Filter>Source Files\calibration</Filter></ClCompile>
+    <ClCompile Include="src\calibration\rectifier.cpp"><Filter>Source Files\calibration</Filter></ClCompile>
+    <ClCompile Include="src\measure\background.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\segment_traditional.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\segment_ai.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\edge_refine.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\rectify_angle.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\measure_core.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\measure_pipeline.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\measure_types.h" />
+    <ClInclude Include="src\common\ini_config.h"><Filter>Source Files\common</Filter></ClInclude>
+    <ClInclude Include="src\common\image_io.h"><Filter>Source Files\common</Filter></ClInclude>
+    <ClInclude Include="src\common\logger.h"><Filter>Source Files\common</Filter></ClInclude>
+    <ClInclude Include="src\checkerboard\board_generator.h"><Filter>Source Files\checkerboard</Filter></ClInclude>
+    <ClInclude Include="src\calibration\calibrator.h"><Filter>Source Files\calibration</Filter></ClInclude>
+    <ClInclude Include="src\calibration\rectifier.h"><Filter>Source Files\calibration</Filter></ClInclude>
+    <ClInclude Include="src\measure\background.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\segment_traditional.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\segment_ai.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\edge_refine.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\rectify_angle.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\measure_core.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\measure_pipeline.h"><Filter>Source Files\measure</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="config.ini" />
+    <None Include="opencv_onnx_paths.props" />
+  </ItemGroup>
+</Project>

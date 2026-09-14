@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================================
+  opencv_onnx_paths.props：第三方库路径集中配置（全工程唯一需要手动维护的文件）
+  ============================================================================
+  拿到新机器或升级库版本时，只需修改下面两个宏：
+    OPENCV_DIR       : OpenCV 4.8.0 的 build 目录（其下应有 include/ 与 x64/vc16/）
+    ONNXRUNTIME_DIR  : ONNX Runtime GPU 包根目录（其下应有 include/ 与 lib/）
+  CUDA 说明：本工程代码不直接调用 CUDA API，GPU 推理全部由 ONNX Runtime CUDA EP
+  承担，因此工程不链接 cudart.lib（避免把编译机的旧版 cudart64_1xx.dll 依赖带进
+  产物）。部署机运行 AI 推理时需安装 CUDA 12.x + cuDNN 9.x 运行时。
+  ============================================================================
+  目录结构约定：
+    $(OPENCV_DIR)\include                       头文件
+    $(OPENCV_DIR)\x64\vc16\lib\opencv_world480.lib / opencv_world480d.lib
+    $(OPENCV_DIR)\x64\vc16\bin\opencv_world480.dll / opencv_world480d.dll
+    $(ONNXRUNTIME_DIR)\include                  头文件
+    $(ONNXRUNTIME_DIR)\lib\onnxruntime.lib
+    $(ONNXRUNTIME_DIR)\lib\onnxruntime.dll / onnxruntime_providers_*.dll
+  若你的 OpenCV 用的是 vc17 目录或版本号不是 480，请同步修改下方对应宏。
+  ============================================================================
+-->
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="ThirdPartyPaths">
+    <!-- ★★★ 用户必填：OpenCV 4.8.0 build 目录 ★★★ -->
+    <OPENCV_DIR>D:\3_package\dev_config\opencv\build</OPENCV_DIR>
+    <!-- ★★★ 用户必填：ONNX Runtime（GPU 版）根目录 ★★★ -->
+    <ONNXRUNTIME_DIR>D:\3_package\dev_config\onnxruntime-gpu</ONNXRUNTIME_DIR>
+
+    <!-- 以下派生宏一般无需修改；库版本号变化时才需要动 -->
+    <OPENCV_INCLUDE>$(OPENCV_DIR)\include</OPENCV_INCLUDE>
+    <OPENCV_LIB_DIR>$(OPENCV_DIR)\x64\vc16\lib</OPENCV_LIB_DIR>
+    <OPENCV_BIN_DIR>$(OPENCV_DIR)\x64\vc16\bin</OPENCV_BIN_DIR>
+    <OPENCV_WORLD_LIB>opencv_world480.lib</OPENCV_WORLD_LIB>
+    <OPENCV_WORLD_LIB_D>opencv_world480d.lib</OPENCV_WORLD_LIB_D>
+    <OPENCV_WORLD_DLL>opencv_world480.dll</OPENCV_WORLD_DLL>
+    <OPENCV_WORLD_DLL_D>opencv_world480d.dll</OPENCV_WORLD_DLL_D>
+    <ONNXRUNTIME_INCLUDE>$(ONNXRUNTIME_DIR)\include</ONNXRUNTIME_INCLUDE>
+    <ONNXRUNTIME_LIB_DIR>$(ONNXRUNTIME_DIR)\lib</ONNXRUNTIME_LIB_DIR>
+  </PropertyGroup>
+</Project>
