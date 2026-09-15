@@ -50,4 +50,28 @@ bool DetectCodeRegions(const cv::Mat& gray,
                        const common::CodeDetectConfig& cfg,
                        std::vector<CodeRegion>& regions);
 
+// 码区候选公共过滤入口（传统三层与 AI 支路共用）：
+// 原图尺度四角点 -> 按校正角绕图心仿射映射进校正坐标系（与 RotateImageAndMask
+// 同一约定，点是精确变换不涉及像素插值）-> 外接矩形 -> 面积下限 /
+// 中心须落在产品轮廓内 -> 裁剪到图像范围。
+//
+// Args:
+//   quadOrig      原图尺度的候选四角点（须恰好 4 点，保留亚像素精度）；
+//   totalAngleDeg 总校正角（度）；
+//   imageSize     原图尺寸（裁剪用）；
+//   rotContour    旋转校正后的产品外轮廓（可为空表示不做轮廓过滤）；
+//   minAreaPx     码框最小面积（原图尺度像素²）；
+//   type/conf     写入 CodeRegion 的类型与置信度；
+//   out           输出参数：通过过滤时填充。
+//
+// Returns:
+//   通过全部过滤返回 true；任一项不满足返回 false。
+bool AcceptCodeQuad(const std::vector<cv::Point2f>& quadOrig,
+                    double totalAngleDeg,
+                    const cv::Size& imageSize,
+                    const std::vector<cv::Point>& rotContour,
+                    double minAreaPx,
+                    CodeType type, double conf,
+                    CodeRegion& out);
+
 }  // namespace cam

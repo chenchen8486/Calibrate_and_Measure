@@ -186,11 +186,33 @@ struct MeasureConfig {
 // [code_detect] 码区检测（产品表面二维码/一维码外接矩形定位）
 struct CodeDetectConfig {
     bool   enabled      = true;  // 码区检测开关（false 时 codeRegions 恒为空）
+    std::string method  = "traditional";  // 检测方法："traditional"=OpenCV 三层链
+                                 // （QRCodeDetector/BarcodeDetector/条纹兜底）；
+                                 // "ai"=深度学习分割（两类模型取码区类，后处理见
+                                 // [code_detect_ai]），模型未就绪/推理失败自动回退
+                                 // traditional
     int    max_side     = 0;     // 检测降采样上限（像素最长边），0 = 全分辨率。
-                                 // 条码条纹对降采样敏感（5.5K 图实测 0.5 倍以下
-                                 // 检出率明显下跌），默认全分辨率最稳；高分辨率
-                                 // 相机确认检出率后可调小加速。框坐标自动映射回原图
+                                 // 仅 traditional 支路生效。条码条纹对降采样敏感
+                                 // （5.5K 图实测 0.5 倍以下检出率明显下跌），默认
+                                 // 全分辨率最稳；高分辨率相机确认检出率后可调小
+                                 // 加速。框坐标自动映射回原图
     double min_area_px  = 900.0; // 码框最小面积（原图尺度像素²，约 30x30），过滤噪点候选
+};
+
+// [code_detect_ai] AI 码区检测后处理（code_detect.method = ai 时生效）
+// 模型与盒子分割共用 [ai_seg] onnx_model（两类输出：盒子 = 0，码区 = 1），
+// 设备沿用 [ai_seg] device。出厂 ini 只暴露现场可能要调的三个键；
+// 形状判定参数（extent_min/aspect_max/qr_aspect_tol）属算法内部定义，
+// 此处保留解析与默认值，需要时往 ini 加回同名键即可覆盖
+struct CodeDetectAiConfig {
+    double threshold      = 0.5;    // 码区类别置信度阈值（sigmoid 后）
+    double min_area_ratio = 0.0003; // 连通域最小面积占比（相对整图），去琐碎噪声
+    int    max_count      = 2;      // 每张图最多保留码区数（按面积降序）
+    // 以下为算法内部定义（不在出厂 ini 展示）：
+    double extent_min     = 0.75;   // 矩形度下限（连通域面积/外接矩形面积），
+                                    // 保证区域"大且完整"
+    double aspect_max     = 6.0;    // 长短边比上限，排除细长假区
+    double qr_aspect_tol  = 1.4;    // 长短边比 ≤ 此值报 QR，否则报 BAR
 };
 
 // [debug] 中间结果落盘开关（功能 2 的 QA 质检图 + 功能 3 的调试图）
@@ -215,6 +237,7 @@ struct AppConfig {
     RotateConfig        rotate;        // 角度校正参数
     MeasureConfig       measure;       // 测量参数
     CodeDetectConfig    code_detect;   // 码区检测参数
+    CodeDetectAiConfig  code_detect_ai; // AI 码区检测后处理参数
     DebugConfig         debug;         // 中间结果落盘开关
 
     // 从 ini 文件加载配置；缺失的段/键保留默认值

@@ -182,6 +182,51 @@ void FindStripeCandidates(const cv::Mat& gray, std::vector<cv::Rect>& rects) {
 
 }  // namespace
 
+bool AcceptCodeQuad(const std::vector<cv::Point2f>& quadOrig, double totalAngleDeg,
+                    const cv::Size& imageSize, const std::vector<cv::Point>& rotContour,
+                    double minAreaPx, CodeType type, double conf, CodeRegion& out) {
+    if (quadOrig.size() != 4) {
+        return false;
+    }
+    // 校正映射（与 RotateImageAndMask 完全一致）：检出四角点经精确仿射变换
+    // 进旋转校正坐标系，点变换不涉及像素插值
+    const cv::Point2d imgCenter(imageSize.width / 2.0, imageSize.height / 2.0);
+    const cv::Mat rotMat = cv::getRotationMatrix2D(imgCenter, -totalAngleDeg, 1.0);
+    std::vector<cv::Point2f> pts = quadOrig;
+    cv::transform(pts, pts, rotMat);
+    float x1 = pts[0].x, y1 = pts[0].y, x2 = pts[0].x, y2 = pts[0].y;
+    for (const cv::Point2f& p : pts) {
+        x1 = std::min(x1, p.x);
+        y1 = std::min(y1, p.y);
+        x2 = std::max(x2, p.x);
+        y2 = std::max(y2, p.y);
+    }
+    cv::Rect2d r(x1, y1, x2 - x1, y2 - y1);
+    if (r.area() < minAreaPx) {
+        return false;
+    }
+    const cv::Point2d center(r.x + r.width * 0.5, r.y + r.height * 0.5);
+    if (!rotContour.empty() &&
+        cv::pointPolygonTest(rotContour, center, false) < 0.0) {
+        return false;  // 码一定印在产品上，中心落在产品外的候选判为误报
+    }
+    // 裁剪到图像范围内（检测器四角点可能略微越界）
+    const double cx1 = std::max(0.0, r.x);
+    const double cy1 = std::max(0.0, r.y);
+    const double cx2 = std::min((double)imageSize.width, r.x + r.width);
+    const double cy2 = std::min((double)imageSize.height, r.y + r.height);
+    if (cx2 <= cx1 || cy2 <= cy1) {
+        return false;
+    }
+    out.type = type;
+    out.x = cx1;
+    out.y = cy1;
+    out.w = cx2 - cx1;
+    out.h = cy2 - cy1;
+    out.confidence = conf;
+    return true;
+}
+
 bool DetectCodeRegions(const cv::Mat& gray,
                        const std::vector<cv::Point>& rotContour,
                        double totalAngleDeg,
@@ -204,55 +249,21 @@ bool DetectCodeRegions(const cv::Mat& gray,
             cv::resize(gray, detImg, cv::Size(), scale, scale, cv::INTER_AREA);
         }
 
-        // 2) 校正映射矩阵（与 RotateImageAndMask 完全一致）：检出四角点经
-        //    精确仿射变换进旋转校正坐标系，点变换不涉及像素插值
-        const cv::Point2d imgCenter(gray.cols / 2.0, gray.rows / 2.0);
-        const cv::Mat rotMat = cv::getRotationMatrix2D(imgCenter, -totalAngleDeg, 1.0);
-
-        // 3) 候选四角点（坐标所在尺度由 coordToOrig 给出）→ 原图尺度 →
-        //    校正坐标系外接矩形 → 过滤入库
+        // 2) 候选四角点（坐标所在尺度由 coordToOrig 给出）→ 原图尺度 →
+        //    公共入口 AcceptCodeQuad（映射校正坐标系 + 面积/轮廓过滤）
         auto acceptQuad = [&](const std::vector<cv::Point>& quad, double coordToOrig,
                               CodeType type, double conf, CodeRegion& out) -> bool {
             if (quad.size() != 4) {
                 return false;
             }
-            std::vector<cv::Point2f> pts;
-            pts.reserve(4);
+            std::vector<cv::Point2f> scaled;
+            scaled.reserve(4);
             for (const cv::Point& p : quad) {
-                pts.emplace_back((float)(p.x * coordToOrig), (float)(p.y * coordToOrig));
+                scaled.emplace_back((float)(p.x * coordToOrig),
+                                    (float)(p.y * coordToOrig));
             }
-            cv::transform(pts, pts, rotMat);
-            float x1 = pts[0].x, y1 = pts[0].y, x2 = pts[0].x, y2 = pts[0].y;
-            for (const cv::Point2f& p : pts) {
-                x1 = std::min(x1, p.x);
-                y1 = std::min(y1, p.y);
-                x2 = std::max(x2, p.x);
-                y2 = std::max(y2, p.y);
-            }
-            cv::Rect2d r(x1, y1, x2 - x1, y2 - y1);
-            if (r.area() < cfg.min_area_px) {
-                return false;
-            }
-            const cv::Point2d center(r.x + r.width * 0.5, r.y + r.height * 0.5);
-            if (!rotContour.empty() &&
-                cv::pointPolygonTest(rotContour, center, false) < 0.0) {
-                return false;  // 码一定印在产品上，中心落在产品外的候选判为误报
-            }
-            // 裁剪到图像范围内（检测器四角点可能略微越界）
-            const double cx1 = std::max(0.0, r.x);
-            const double cy1 = std::max(0.0, r.y);
-            const double cx2 = std::min((double)gray.cols, r.x + r.width);
-            const double cy2 = std::min((double)gray.rows, r.y + r.height);
-            if (cx2 <= cx1 || cy2 <= cy1) {
-                return false;
-            }
-            out.type = type;
-            out.x = cx1;
-            out.y = cy1;
-            out.w = cx2 - cx1;
-            out.h = cy2 - cy1;
-            out.confidence = conf;
-            return true;
+            return AcceptCodeQuad(scaled, totalAngleDeg, gray.size(), rotContour,
+                                  cfg.min_area_px, type, conf, out);
         };
 
         std::vector<CodeRegion> found;

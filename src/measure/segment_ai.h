@@ -33,6 +33,29 @@ public:
     //   成功返回 true（含 fallback 兜底成功）；粗定位失败或分割器未就绪返回 false。
     virtual bool Segment(const cv::Mat& gray, const cv::Mat& background,
                          cv::Mat& mask, std::string& desc) = 0;
+
+    // 指定类别的实例掩膜推理（AI 码区检测用）：整图直接推理（不做 ROI crop），
+    // 每个"argmax 类为目标类且置信度过阈"的查询产出一幅原图尺度二值掩膜。
+    //
+    // Args:
+    //   gray         8UC1 灰度图（未旋转原图）。
+    //   targetClass  目标类别索引（约定：盒子 = 0，码区固定为 1）。
+    //   threshold    类别置信度阈值（sigmoid 后，0~1）。
+    //   classMasks   输出参数：过阈查询的原图尺度二值掩膜列表（前景 255）。
+    //   classScores  输出参数：与 classMasks 一一对应的类别置信度。
+    //   desc         输出参数：检出描述（如 "类1:0.92 | 类1:0.87"）。
+    //
+    // Returns:
+    //   正常完成返回 true（含零检出）；分割器未就绪、模型无目标类别通道
+    //   （如旧的单类模型）或推理失败返回 false，由调用方回退传统检测。
+    //   默认实现返回 false（不支持类别掩膜推理）。
+    virtual bool InferClassMasks(const cv::Mat& gray, int targetClass, double threshold,
+                                 std::vector<cv::Mat>& classMasks,
+                                 std::vector<float>& classScores, std::string& desc) {
+        (void)gray; (void)targetClass; (void)threshold;
+        (void)classMasks; (void)classScores; (void)desc;
+        return false;
+    }
 };
 
 // ONNX Runtime 实现的 RF-DETR-seg 分割器。
@@ -54,9 +77,13 @@ public:
     bool Segment(const cv::Mat& gray, const cv::Mat& background,
                  cv::Mat& mask, std::string& desc) override;
 
+    bool InferClassMasks(const cv::Mat& gray, int targetClass, double threshold,
+                         std::vector<cv::Mat>& classMasks,
+                         std::vector<float>& classScores, std::string& desc) override;
+
 private:
-    // ROI crop 内推理 + 后处理，产出 crop 尺寸的二值掩膜
-    // （预处理/后处理的张量布局约定集中在 segment_ai.cpp 的注释块中，联调时对齐）
+    // ROI crop 内推理 + 后处理，产出 crop 尺寸的盒子二值掩膜（取盒子类 = 类 0；
+    // 预处理/后处理的张量布局约定集中在 segment_ai.cpp 的注释块中，联调时对齐）
     bool InferCrop(const cv::Mat& cropGray, cv::Mat& maskCrop, std::string& detDesc);
 
     struct Impl;  // pImpl：隔离 onnxruntime 头文件

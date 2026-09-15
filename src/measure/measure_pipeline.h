@@ -32,8 +32,10 @@ public:
     // 加载 iniPath 全部测量配置并初始化：
     //   1) LoadFromIni 解析配置（相对路径自动转绝对路径）；
     //   2) 背景建模：paths.input_dir 全量图 + paths.background_file 缓存；
-    //   3) 分割器初始化：segmentation.method=="ai" 时创建 ONNX 会话，
-    //      模型缺失/加载失败自动回退传统分割并记 Warn。
+    //   3) 分割器初始化：segmentation.method=="ai" 或 code_detect.method=="ai"
+    //      任一启用即创建 ONNX 会话（同一个两类模型一次加载，盒子分割取类 0、
+    //      码区检测取 code_detect_ai.code_class）；模型缺失/加载失败时两路
+    //      各自自动回退传统实现并记 Warn。
     //
     // Args:
     //   iniPath ini 配置文件路径。
@@ -72,8 +74,9 @@ public:
 private:
     common::AppConfig cfg_;              // 全工程配置
     cv::Mat           background_;       // 背景模型（8UC1）
-    std::unique_ptr<IAiSegmenter> aiSeg_;    // AI 分割器（method=="ai" 且就绪时非空）
-    bool              useAi_  = false;   // 是否实际使用 AI 分割
+    std::unique_ptr<IAiSegmenter> aiSeg_;    // AI 分割器（任一支路启用 ai 且就绪时非空）
+    bool              useAi_  = false;   // 是否实际使用 AI 分割（盒子掩膜链路）
+    bool              codeAi_ = false;   // 码区检测是否配置为 AI 支路（code_detect.method=="ai"）
     bool              ready_  = false;   // 初始化完成标记
 };
 

@@ -377,8 +377,21 @@ bool AppConfig::LoadFromIni(const std::string& iniPath, std::string& errMsg) {
 
     // [code_detect] 码区检测
     code_detect.enabled      = ini.GetBool("code_detect", "enabled", code_detect.enabled);
+    code_detect.method       = ini.GetString("code_detect", "method", code_detect.method);
     code_detect.max_side     = ini.GetInt("code_detect", "max_side", code_detect.max_side);
     code_detect.min_area_px  = ini.GetDouble("code_detect", "min_area_px", code_detect.min_area_px);
+
+    // [code_detect_ai] AI 码区检测后处理（code_detect.method = ai 时生效）。
+    // 形状判定参数（extent_min/aspect_max/qr_aspect_tol）不在出厂 ini 展示，
+    // 此处保留解析，需要时加回同名键即可覆盖默认值
+    code_detect_ai.threshold  = ini.GetDouble("code_detect_ai", "threshold", code_detect_ai.threshold);
+    code_detect_ai.min_area_ratio =
+        ini.GetDouble("code_detect_ai", "min_area_ratio", code_detect_ai.min_area_ratio);
+    code_detect_ai.max_count  = ini.GetInt("code_detect_ai", "max_count", code_detect_ai.max_count);
+    code_detect_ai.extent_min = ini.GetDouble("code_detect_ai", "extent_min", code_detect_ai.extent_min);
+    code_detect_ai.aspect_max = ini.GetDouble("code_detect_ai", "aspect_max", code_detect_ai.aspect_max);
+    code_detect_ai.qr_aspect_tol =
+        ini.GetDouble("code_detect_ai", "qr_aspect_tol", code_detect_ai.qr_aspect_tol);
 
     // [debug] 中间结果落盘开关
     debug.save_intermediate = ini.GetBool("debug", "save_intermediate", debug.save_intermediate);

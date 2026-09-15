@@ -23,6 +23,7 @@
 #include "common/logger.h"
 #include "measure/background.h"
 #include "measure/code_detect.h"
+#include "measure/code_detect_ai.h"
 #include "measure/edge_refine.h"
 #include "measure/measure_core.h"
 #include "measure/rectify_angle.h"
@@ -90,6 +91,7 @@ MeasurePipeline::~MeasurePipeline() = default;
 bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
     ready_ = false;
     useAi_ = false;
+    codeAi_ = false;
     aiSeg_.reset();
 
     // 1) 配置加载（相对路径已在 LoadFromIni 内解析为绝对路径）
@@ -137,26 +139,45 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
         }
     }
 
-    // 3) 分割器初始化：method=="ai" 时创建 ONNX 会话，失败自动回退传统
+    // 3) 分割器初始化：segmentation.method=="ai" 或 code_detect.method=="ai"
+    //    任一启用即创建 ONNX 会话（同一个两类模型一次加载，盒子分割取类 0、
+    //    码区检测取 code_detect_ai.code_class，两路共用）；失败时两路各自回退
     std::string method = cfg_.segmentation.method;
     std::transform(method.begin(), method.end(), method.begin(),
                    [](unsigned char ch) { return (char)std::tolower(ch); });
-    if (method == "ai") {
+    std::string codeMethod = cfg_.code_detect.method;
+    std::transform(codeMethod.begin(), codeMethod.end(), codeMethod.begin(),
+                   [](unsigned char ch) { return (char)std::tolower(ch); });
+    codeAi_ = cfg_.code_detect.enabled && codeMethod == "ai";
+    if (cfg_.code_detect.enabled && codeMethod != "ai" && codeMethod != "traditional") {
+        common::LogMsg(common::LWARN,
+                       "无法识别的码区检测方法 [" + cfg_.code_detect.method +
+                           "]，按 traditional 处理（可选 traditional/ai）");
+    }
+    if (method == "ai" || codeAi_) {
         auto seg = std::make_unique<OnnxSegmenter>(cfg_.ai_seg, cfg_.trad_seg);
         if (seg->IsReady()) {
             aiSeg_ = std::move(seg);
-            useAi_ = true;
+            useAi_ = (method == "ai");
             common::LogMsg(common::LINFO, "AI 分割器就绪");
         } else {
-            common::LogMsg(common::LWARN,
-                           "AI 分割器初始化失败（" + seg->LastError() +
-                               "），回退传统背景差分分割");
+            std::string fb = "AI 分割器初始化失败（" + seg->LastError() + "），";
+            if (method == "ai" && codeAi_) {
+                fb += "分割回退传统背景差分，码区检测回退传统三层链";
+            } else if (method == "ai") {
+                fb += "分割回退传统背景差分";
+            } else {
+                fb += "码区检测回退传统三层链";
+            }
+            common::LogMsg(common::LWARN, fb);
         }
     }
     ready_ = true;
     common::LogMsg(common::LINFO,
-                   std::string("测量流水线初始化完成，分割方式: ") +
-                       (useAi_ ? "ai" : "traditional"));
+                   Fmt("测量流水线初始化完成，分割方式: %s，码区检测: %s",
+                       useAi_ ? "ai" : "traditional",
+                       codeAi_ ? (aiSeg_ ? "ai" : "traditional（AI 未就绪回退）")
+                               : "traditional"));
     return true;
 }
 
@@ -253,10 +274,25 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
         }
         // 码区缺失不视为错误（未检出返回空 vector），失败仅告警。
         // 检测在未旋转的原始灰度图上进行（旋转插值会平滑条码细条纹导致漏检，
-        // 实测结论见 code_detect.h），检出框按校正角解析映射回校正坐标系
-        if (!DetectCodeRegions(gray, rotContour, totalAngle, cfg_.code_detect,
-                               out.codeRegions)) {
-            out.codeRegions.clear();
+        // 实测结论见 code_detect.h），检出框按校正角解析映射回校正坐标系。
+        // code_detect.method=ai 时走深度学习支路（同一个两类模型取码区类掩膜
+        // + 后处理），AI 支路失败/模型无码区类别通道时本帧自动回退传统三层链
+        bool codeDone = false;
+        if (codeAi_ && aiSeg_) {
+            codeDone =
+                DetectCodeRegionsAi(*aiSeg_, gray, rotContour, totalAngle,
+                                    cfg_.code_detect, cfg_.code_detect_ai,
+                                    out.codeRegions);
+            if (!codeDone) {
+                common::LogMsg(common::LWARN,
+                               "AI 码区检测未跑通，本帧回退传统三层链");
+            }
+        }
+        if (!codeDone) {
+            if (!DetectCodeRegions(gray, rotContour, totalAngle, cfg_.code_detect,
+                                   out.codeRegions)) {
+                out.codeRegions.clear();
+            }
         }
 
         // ---- 阶段 4：按 payload.py 约定组装输出（坐标/长度 2 位，角度 3 位）----

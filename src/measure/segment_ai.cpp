@@ -93,6 +93,12 @@ bool CudaRuntimeAvailable() {
 //                    （检测框输出 [1, Q, 4] 同为 3 维，按"末维 != 4"区分）
 //          掩膜 logits  float32 [1, Q, mh, mw] —— sigmoid 为前景概率，
 //                    resize 到 crop 尺寸后以 0.5 二值化。
+//   类别 : 当前交付模型 C=2（labels [1,100,2]），但类 1 未训练，仅类 0
+//          盒子可用；码区支路需重训两类模型（约定 类 0 = 盒子、类 1 = 码区，
+//          固定约定见 code_detect_ai.cpp kCodeClass，训练导出顺序不符时在
+//          训练侧调整，不走配置）。盒子分割只取 argmax 类为 0 的查询，码区
+//          推理只取 argmax 类为码区类的查询，两路互不抢占；当前模型 argmax
+//          恒为 0，盒子行为与旧版一致，码区推理零检出（属预期）。
 // ============================================================================
 constexpr float kImageNetMean[3] = {0.485f, 0.456f, 0.406f};
 constexpr float kImageNetStd[3]  = {0.229f, 0.224f, 0.225f};
@@ -114,6 +120,69 @@ void PreprocessCrop(const cv::Mat& cropGray, int inW, int inH, std::vector<float
             }
         }
     }
+}
+
+// 一次推理的产出：持有输出张量（读取数据期间必须存活）与识别出的角色索引
+struct ModelOutputs {
+    std::vector<Ort::Value> tensors;
+    int scoresIdx = -1;             // 分类 logits [1,Q,C] 的下标
+    int masksIdx = -1;              // 掩膜 logits [1,Q,mh,mw] 的下标
+    std::vector<int64_t> scoresShape;
+    std::vector<int64_t> masksShape;
+};
+
+// 预处理 + 推理 + 输出角色识别（InferCrop / InferClassMasks 共用）。
+// 成功返回 true 且 scoresIdx/masksIdx 有效；布局无法识别返回 false（已记 Warn）。
+bool RunSession(Ort::Session& session, const std::string& inputName,
+                const std::vector<std::string>& outputNames, int inW, int inH,
+                const cv::Mat& imgGray, ModelOutputs& mo) {
+    std::vector<float> blob;
+    PreprocessCrop(imgGray, inW, inH, blob);
+
+    const std::array<int64_t, 4> inShape = {1, 3, inH, inW};
+    const Ort::MemoryInfo memInfo = Ort::MemoryInfo::CreateCpu(
+        OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+    Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
+        memInfo, blob.data(), blob.size(), inShape.data(), inShape.size());
+
+    const char* inNames[] = {inputName.c_str()};
+    std::vector<const char*> outNames;
+    outNames.reserve(outputNames.size());
+    for (const std::string& s : outputNames) {
+        outNames.push_back(s.c_str());
+    }
+    mo.tensors = session.Run(Ort::RunOptions{nullptr}, inNames, &inputTensor, 1,
+                             outNames.data(), outNames.size());
+
+    // 识别输出角色：分类 logits [1,Q,C]（末维!=4）、检测框 [1,Q,4]、掩膜 [1,Q,mh,mw]
+    for (size_t i = 0; i < mo.tensors.size(); ++i) {
+        auto info = mo.tensors[i].GetTensorTypeAndShapeInfo();
+        if (info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+            continue;
+        }
+        std::vector<int64_t> shape = info.GetShape();
+        if (shape.size() == 3) {
+            if (shape[2] != 4 && mo.scoresIdx < 0) {
+                mo.scoresIdx = (int)i;
+                mo.scoresShape = shape;
+            }
+        } else if (shape.size() == 4 && mo.masksIdx < 0) {
+            mo.masksIdx = (int)i;
+            mo.masksShape = shape;
+        }
+    }
+    if (mo.scoresIdx < 0 || mo.masksIdx < 0) {
+        common::LogMsg(common::LWARN,
+                       "ONNX 输出布局无法识别（缺少 3 维分类或 4 维掩膜输出），"
+                       "请按文件顶部注释核对模型导出格式");
+        return false;
+    }
+    if (mo.masksShape[1] != mo.scoresShape[1] || mo.masksShape[2] <= 0 ||
+        mo.masksShape[3] <= 0) {
+        common::LogMsg(common::LWARN, "ONNX 输出查询数不一致或掩膜尺寸非法");
+        return false;
+    }
+    return true;
 }
 
 }  // namespace
@@ -237,64 +306,22 @@ OnnxSegmenter::~OnnxSegmenter() = default;
 
 bool OnnxSegmenter::InferCrop(const cv::Mat& cropGray, cv::Mat& maskCrop,
                               std::string& detDesc) {
-    const int inW = impl_->inputW, inH = impl_->inputH;
-    std::vector<float> blob;
-    PreprocessCrop(cropGray, inW, inH, blob);
-
-    const std::array<int64_t, 4> inShape = {1, 3, inH, inW};
-    const Ort::MemoryInfo memInfo = Ort::MemoryInfo::CreateCpu(
-        OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
-    Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
-        memInfo, blob.data(), blob.size(), inShape.data(), inShape.size());
-
-    const char* inNames[] = {impl_->inputName.c_str()};
-    std::vector<const char*> outNames;
-    outNames.reserve(impl_->outputNames.size());
-    for (const std::string& s : impl_->outputNames) {
-        outNames.push_back(s.c_str());
-    }
-    std::vector<Ort::Value> outputs =
-        impl_->session->Run(Ort::RunOptions{nullptr}, inNames, &inputTensor, 1,
-                            outNames.data(), outNames.size());
-
-    // ---- 后处理（布局约定见文件顶部注释块）----
-    // 识别输出角色：分类 logits [1,Q,C]（末维!=4）、检测框 [1,Q,4]、掩膜 [1,Q,mh,mw]
-    int scoresIdx = -1, masksIdx = -1;
-    std::vector<int64_t> scoresShape, masksShape;
-    for (size_t i = 0; i < outputs.size(); ++i) {
-        auto info = outputs[i].GetTensorTypeAndShapeInfo();
-        if (info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
-            continue;
-        }
-        std::vector<int64_t> shape = info.GetShape();
-        if (shape.size() == 3) {
-            if (shape[2] != 4 && scoresIdx < 0) {
-                scoresIdx = (int)i;
-                scoresShape = shape;
-            }
-        } else if (shape.size() == 4 && masksIdx < 0) {
-            masksIdx = (int)i;
-            masksShape = shape;
-        }
-    }
-    if (scoresIdx < 0 || masksIdx < 0) {
-        common::LogMsg(common::LWARN,
-                       "ONNX 输出布局无法识别（缺少 3 维分类或 4 维掩膜输出），"
-                       "请按文件顶部注释核对模型导出格式");
+    ModelOutputs mo;
+    if (!RunSession(*impl_->session, impl_->inputName, impl_->outputNames,
+                    impl_->inputW, impl_->inputH, cropGray, mo)) {
         return false;
     }
-    const int64_t Q  = scoresShape[1];
-    const int64_t C  = scoresShape[2];
-    const int64_t mh = masksShape[2];
-    const int64_t mw = masksShape[3];
-    if (masksShape[1] != Q || mh <= 0 || mw <= 0) {
-        common::LogMsg(common::LWARN, "ONNX 输出查询数不一致或掩膜尺寸非法");
-        return false;
-    }
-    const float* scores = outputs[scoresIdx].GetTensorData<float>();
-    const float* masks  = outputs[masksIdx].GetTensorData<float>();
+    const float* scores = mo.tensors[mo.scoresIdx].GetTensorData<float>();
+    const float* masks  = mo.tensors[mo.masksIdx].GetTensorData<float>();
+    const int64_t Q  = mo.scoresShape[1];
+    const int64_t C  = mo.scoresShape[2];
+    const int64_t mh = mo.masksShape[2];
+    const int64_t mw = mo.masksShape[3];
 
-    // 逐查询：置信度 = sigmoid(logits) 的最大类值；置信度过阈者参与面积竞争
+    // 逐查询：argmax 类须为盒子类（kBoxClass）才参与面积竞争。两类模型
+    // （0=盒子，1=码区）下防止码区查询抢占盒子实例；旧单类模型 argmax 恒为 0，
+    // 行为与旧版完全一致。置信度过阈即记入 descs（不论类别），便于漏检时排查
+    constexpr int kBoxClass = 0;
     int bestQ = -1;
     long long bestArea = -1;
     std::string descs;
@@ -312,6 +339,13 @@ bool OnnxSegmenter::InferCrop(const cv::Mat& cropGray, cv::Mat& maskCrop,
         if (bestScore < aiCfg_.threshold) {
             continue;
         }
+        if (!descs.empty()) {
+            descs += " | ";
+        }
+        descs += Fmt("类%d:%.2f", bestCls, bestScore);
+        if (bestCls != kBoxClass) {
+            continue;
+        }
         // 模型分辨率下统计前景面积（sigmoid > 0.5），用于选最大实例
         const float* qm = masks + q * mh * mw;
         long long area = 0;
@@ -320,10 +354,6 @@ bool OnnxSegmenter::InferCrop(const cv::Mat& cropGray, cv::Mat& maskCrop,
                 ++area;
             }
         }
-        if (!descs.empty()) {
-            descs += " | ";
-        }
-        descs += Fmt("类%d:%.2f", bestCls, bestScore);
         if (area > bestArea) {
             bestArea = area;
             bestQ = (int)q;
@@ -344,6 +374,75 @@ bool OnnxSegmenter::InferCrop(const cv::Mat& cropGray, cv::Mat& maskCrop,
     cv::threshold(maskUp, maskUp, 0.5, 255.0, cv::THRESH_BINARY);
     maskUp.convertTo(maskCrop, CV_8UC1);
     detDesc = descs;
+    return true;
+}
+
+bool OnnxSegmenter::InferClassMasks(const cv::Mat& gray, int targetClass, double threshold,
+                                    std::vector<cv::Mat>& classMasks,
+                                    std::vector<float>& classScores, std::string& desc) {
+    classMasks.clear();
+    classScores.clear();
+    desc.clear();
+    if (!ready_) {
+        desc = "AI 分割器未就绪：" + lastError_;
+        return false;
+    }
+    ModelOutputs mo;
+    if (!RunSession(*impl_->session, impl_->inputName, impl_->outputNames,
+                    impl_->inputW, impl_->inputH, gray, mo)) {
+        return false;
+    }
+    const float* scores = mo.tensors[mo.scoresIdx].GetTensorData<float>();
+    const float* masks  = mo.tensors[mo.masksIdx].GetTensorData<float>();
+    const int64_t Q  = mo.scoresShape[1];
+    const int64_t C  = mo.scoresShape[2];
+    const int64_t mh = mo.masksShape[2];
+    const int64_t mw = mo.masksShape[3];
+    if (targetClass < 0 || targetClass >= (int)C) {
+        desc = Fmt("模型输出仅 %d 类，无类别索引 %d 的通道"
+                   "（AI 码区检测需换两类重训模型）", (int)C, targetClass);
+        common::LogMsg(common::LWARN, desc);
+        return false;
+    }
+    // 逐查询：argmax 类为目标类且该类置信度过阈才取（防止盒子查询凭借
+    // 次强码区分数混入）；掩膜 sigmoid -> resize 到原图尺度 -> 0.5 二值化
+    std::string descs;
+    for (int64_t q = 0; q < Q; ++q) {
+        const float* qs = scores + q * C;
+        float bestScore = 0.0f;
+        int bestCls = 0;
+        for (int64_t c = 0; c < C; ++c) {
+            const float s = Sigmoid(qs[c]);
+            if (s > bestScore) {
+                bestScore = s;
+                bestCls = (int)c;
+            }
+        }
+        const float targetScore = Sigmoid(qs[targetClass]);
+        if (bestCls != targetClass || targetScore < (float)threshold) {
+            continue;
+        }
+        cv::Mat maskF((int)mh, (int)mw, CV_32FC1);
+        const float* qm = masks + q * mh * mw;
+        for (int64_t i = 0; i < mh * mw; ++i) {
+            maskF.ptr<float>()[i] = Sigmoid(qm[i]);
+        }
+        cv::Mat maskUp;
+        cv::resize(maskF, maskUp, gray.size(), 0.0, 0.0, cv::INTER_LINEAR);
+        cv::threshold(maskUp, maskUp, 0.5, 255.0, cv::THRESH_BINARY);
+        cv::Mat maskBin;
+        maskUp.convertTo(maskBin, CV_8UC1);
+        if (cv::countNonZero(maskBin) == 0) {
+            continue;
+        }
+        if (!descs.empty()) {
+            descs += " | ";
+        }
+        descs += Fmt("类%d:%.2f", targetClass, targetScore);
+        classMasks.push_back(maskBin);
+        classScores.push_back(targetScore);
+    }
+    desc = descs;
     return true;
 }
 

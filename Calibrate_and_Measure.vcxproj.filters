@@ -28,6 +28,7 @@
     <ClCompile Include="src\calibration\rectifier.cpp"><Filter>Source Files\calibration</Filter></ClCompile>
     <ClCompile Include="src\measure\background.cpp"><Filter>Source Files\measure</Filter></ClCompile>
     <ClCompile Include="src\measure\code_detect.cpp"><Filter>Source Files\measure</Filter></ClCompile>
+    <ClCompile Include="src\measure\code_detect_ai.cpp"><Filter>Source Files\measure</Filter></ClCompile>
     <ClCompile Include="src\measure\segment_traditional.cpp"><Filter>Source Files\measure</Filter></ClCompile>
     <ClCompile Include="src\measure\segment_ai.cpp"><Filter>Source Files\measure</Filter></ClCompile>
     <ClCompile Include="src\measure\edge_refine.cpp"><Filter>Source Files\measure</Filter></ClCompile>
@@ -46,6 +47,7 @@
     <ClInclude Include="src\calibration\rectifier.h"><Filter>Source Files\calibration</Filter></ClInclude>
     <ClInclude Include="src\measure\background.h"><Filter>Source Files\measure</Filter></ClInclude>
     <ClInclude Include="src\measure\code_detect.h"><Filter>Source Files\measure</Filter></ClInclude>
+    <ClInclude Include="src\measure\code_detect_ai.h"><Filter>Source Files\measure</Filter></ClInclude>
     <ClInclude Include="src\measure\segment_traditional.h"><Filter>Source Files\measure</Filter></ClInclude>
     <ClInclude Include="src\measure\segment_ai.h"><Filter>Source Files\measure</Filter></ClInclude>
     <ClInclude Include="src\measure\edge_refine.h"><Filter>Source Files\measure</Filter></ClInclude>

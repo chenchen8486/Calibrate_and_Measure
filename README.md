@@ -247,10 +247,11 @@ enum class CodeType : int {          // 码类型
 };
 
 struct CodeRegion {                  // 结构体四：码区定位（轴对齐外接矩形）
-    CodeType type;                   // 码类型
+    CodeType type;                   // 码类型（AI 支路按长短边比启发：方形报 QR）
     double   x, y;                   // 外接矩形左上角
     double   w, h;                   // 外接矩形宽/高
-    double   confidence;             // 置信度：解码成功 1.0，仅定位 0.5，条纹兜底候选 0.3
+    double   confidence;             // 置信度：传统支路解码成功 1.0、仅定位 0.5、
+                                     // 条纹兜底候选 0.3；AI 支路为模型类别置信度（0~1）
 };
 
 struct MeasureOutput {               // 单帧完整测量结果（Measure 的返回值）
@@ -318,15 +319,17 @@ codeRegions（1 个）:
   背景缓存；`[segmentation] method` 选 `ai`（默认）或 `traditional`；
   `[trad_seg]` / `[refine]` / `[rotate]` / `[measure]` 为各算法参数，
   默认值与 Python 版 `configs/default.yaml` 对齐；`[code_detect]` 码区检测
-  开关与参数（enabled/max_side/min_area_px）。
+  开关、方法（`method=traditional/ai`）与两支路共用过滤；`[code_detect_ai]`
+  AI 支路后处理阈值（`threshold`/`min_area_ratio`/`max_count`，
+  `method=ai` 时生效）。
 
 ## 8. 配置文件
 
 - 全部参数集中在 `config.ini`，按功能分段：`[checkerboard]` 制板、
   `[calibrate]` 标定、`[rectify]` 矫正开关、`[paths]` 输入输出、
   `[segmentation]`/`[ai_seg]`/`[trad_seg]` 分割、`[refine]`/`[rotate]`/
-  `[measure]` 算法参数、`[code_detect]` 码区检测、`[debug]` 中间结果开关。
-  各键中文注释见文件内。
+  `[measure]` 算法参数、`[code_detect]`/`[code_detect_ai]` 码区检测、
+  `[debug]` 中间结果开关。各键中文注释见文件内。
 - 接口以 ini 路径为配置入口，显式传参；ini 内相对路径相对 ini 文件所在
   目录解析，ini 可随软件放任意位置。
 - 段间联动：`[calibrate]` 的内角点与标称格距缺省跟随 `[checkerboard]`
@@ -396,13 +399,23 @@ Calibrate_and_Measure/
   加载失败时记 Warn 降级为未矫正运行，测量照常，结果仅像素值；完成标定后
   保持开关打开即自动切换为毫米输出。
 - AI 分割模型为 `assets/weights/small.onnx`（Python 侧 RF-DETR-seg small 导出）。
-- 码区检测（`[code_detect]`）分三层，置信度按检出链路分级：二维码用
-  `QRCodeDetector`；一维码解码体系用 `barcode::BarcodeDetector`（EAN/UPC 系
-  解码成功 `confidence=1.0`，仅定位 0.5）；解码体系零检出时跑条纹兜底——
-  形态学定位致密平行条纹区域，覆盖 Code128、药品电子监管码等解码体系外的
-  条码，`confidence=0.3`（未确认仅定位，前端可按阈值过滤）。条纹兜底的
-  边界：印刷对比度过低或严重畸变/遮挡的码仍可能漏检，要更高覆盖率需走
-  AI 重训（分割模型加码类）路线。
+  当前模型输出两个类别通道（labels [1,100,2]），类 1 未训练，码区 AI 支路
+  用它会零检出；要用 AI 支路需重训两类模型（约定类 0=盒子、类 1=码区，
+  码区按整块矩形区域标注），文件名不变直接替换即可。
+- 码区检测有两条支路，由 `[code_detect] method` 选择。`traditional`（默认）
+  分三层，置信度按检出链路分级：二维码用 `QRCodeDetector`；一维码解码体系
+  用 `barcode::BarcodeDetector`（EAN/UPC 系解码成功 `confidence=1.0`，
+  仅定位 0.5）；解码体系零检出时跑条纹兜底，形态学定位致密平行条纹区域，
+  覆盖 Code128、药品电子监管码等解码体系外的条码，`confidence=0.3`
+  （未确认仅定位，前端可按阈值过滤）。条纹兜底的边界：印刷对比度过低或
+  严重畸变/遮挡的码仍可能漏检。
+- `method=ai` 走深度学习支路：与盒子分割共用同一个 ONNX 会话（一次加载、
+  初始化一次；两类模型训练约定类 0=盒子、类 1=码区，为固定约定不走配置），
+  整图推理取码区类实例掩膜，再做连通域后处理：面积双下限去琐碎噪声、矩形度
+  下限保证区域大且完整、长宽比上限排除细长假区，同码区多查询按 IoU 去重后
+  按面积降序最多保留 `max_count` 个；类型按长短边比启发（方形报 QR，
+  否则 BAR），`confidence` 为模型类别置信度。模型未就绪、无码区类别通道
+  或推理异常时自动回退 traditional 支路，测量主流程不受拖累。
 - 码区检测在未旋转的原始灰度图上进行：旋转插值会把条码细条纹抗锯齿平滑掉
   （实测 1° warp 即全尺度漏检），检出四角点后按校正角做精确仿射映射回
   校正坐标系，点变换无插值，不影响坐标精度。
