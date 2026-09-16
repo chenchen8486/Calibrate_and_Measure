@@ -11,7 +11,9 @@
     ONNXRUNTIME_DIR  : ONNX Runtime GPU 包根目录（其下应有 include/ 与 lib/）
   CUDA 说明：本工程代码不直接调用 CUDA API，GPU 推理全部由 ONNX Runtime CUDA EP
   承担，因此工程不链接 cudart.lib（避免把编译机的旧版 cudart64_1xx.dll 依赖带进
-  产物）。部署机运行 AI 推理时需安装 CUDA 12.x + cuDNN 9.x 运行时。
+  产物）。部署机 GPU 推理需 CUDA 12.x + cuDNN 9.x 运行时 DLL（随包
+  lib/cuda12_cudnn9/bin/ 全套，拷到 exe 同目录即可，无需安装 CUDA Toolkit）；
+  缺失时自动回退 CPU 推理，功能不受影响。
   ============================================================================
   目录结构约定：
     $(OPENCV_DIR)\include                       头文件

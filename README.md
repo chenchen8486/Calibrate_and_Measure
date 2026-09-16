@@ -158,8 +158,9 @@ measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统
 深度学习模型与预热的细节：
 
 - AI 分割使用 ONNX Runtime 推理 `assets/weights/small.onnx`（RF-DETR-seg
-  small，Python 侧导出）。`[ai_seg] device`：`auto`（默认，预检 CUDA 运行时，
-  缺失静默走 CPU）/ `cuda`（强制 GPU）/ `cpu`。
+  small，Python 侧导出）。`[ai_seg] device`：`auto`（默认，直接试注册
+  CUDA EP 并建会话，失败自动回退 CPU）/ `cuda`（强制 GPU，失败回退 CPU
+  并记 Warn）/ `cpu`。
 - 会话创建成功后自动做一次预热推理，Init 返回时预热已完成，调用方无需做
   任何事，也没有配置开关。预热的具体动作：用一张模型输入尺寸的合成纯灰图
   （灰度 128，尺寸跟随模型实际输入，如 384x384）跑一次完整推理，结果直接
@@ -349,7 +350,10 @@ codeRegions（1 个）:
   ▸ `onnxruntime.dll`（AI 分割必需）
   ▸ `onnxruntime_providers_cuda.dll` 与 `onnxruntime_providers_shared.dll`
     （仅 GPU 模式需要）
-- GPU 模式的部署机还需 CUDA 12.x + cuDNN 9.x 运行时；纯 CPU 模式零 CUDA 依赖。
+- GPU 模式的部署机还需 CUDA 12.x + cuDNN 9.x 运行时 DLL（随包
+  `lib/cuda12_cudnn9/bin/` 全套，拷到 exe 同目录即可，无需安装 CUDA Toolkit；
+  要求 NVIDIA 驱动 ≥ R570 且有 N 卡）。CUDA DLL 缺失或有驱动问题时程序自动
+  回退 CPU 推理，功能不受影响。纯 CPU 模式零 CUDA 依赖。
 - 数据文件：`config.ini`、`assets/weights/small.onnx`（AI 模式）、
   标定产物 `checkerboard_calib.xml`（矫正开启时）、背景缓存
   `background_model.bmp`（可预生成随包分发，免去现场建模）。

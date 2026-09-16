@@ -48,39 +48,6 @@ inline float Sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-// 预检 CUDA 运行环境是否可用（device = auto 专用）：
-// 直接试装 exe 同目录的 onnxruntime_providers_cuda.dll——它依赖 CUDA 12/cuDNN 9
-// 运行时，能装上说明 ORT 注册 CUDA EP 也会成功；装不上（典型错误码 126 = 依赖
-// 缺失）则静默走 CPU，避免 ORT 内部打印大段英文报错。
-bool CudaRuntimeAvailable() {
-    wchar_t exePathW[MAX_PATH] = {0};
-    const DWORD n = GetModuleFileNameW(nullptr, exePathW, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) {
-        return false;
-    }
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const fs::path dll = fs::path(exePathW).parent_path() / L"onnxruntime_providers_cuda.dll";
-    if (!fs::exists(dll, ec)) {
-        common::LogMsg(common::LDEBUG,
-                       "未找到 onnxruntime_providers_cuda.dll（可能为 CPU 版 ORT），按 CPU 处理");
-        return false;
-    }
-    // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR：让该 dll 的依赖（onnxruntime.dll 等）从 exe 目录解析
-    HMODULE h = LoadLibraryExW(dll.c_str(), nullptr,
-                               LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-                                   LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (h == nullptr) {
-        common::LogMsg(common::LDEBUG,
-                       Fmt("onnxruntime_providers_cuda.dll 试装失败，错误码 %lu"
-                           "（126 通常表示缺 CUDA 12/cuDNN 9 运行时）",
-                           (unsigned long)GetLastError()));
-        return false;
-    }
-    FreeLibrary(h);
-    return true;
-}
-
 // ============================================================================
 // ★★★ RF-DETR ONNX 预处理/后处理布局约定（联调对齐点）★★★
 // 已与 Python 侧导出产物 assets/weights/small.onnx 实机核对一致
@@ -209,39 +176,56 @@ OnnxSegmenter::OnnxSegmenter(const common::AiSegConfig& aiCfg,
         return;
     }
     try {
-        Ort::SessionOptions so;
-        so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        bool useCuda = false;
+        auto makeOptions = []() {
+            Ort::SessionOptions so;
+            so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+            return so;
+        };
         std::string dev = aiCfg_.device;
         std::transform(dev.begin(), dev.end(), dev.begin(),
                        [](unsigned char ch) { return (char)std::tolower(ch); });
-        if (dev == "auto") {
-            if (CudaRuntimeAvailable()) {
-                dev = "cuda";
-            } else {
-                common::LogMsg(common::LINFO,
-                               "未检测到可用的 CUDA 运行环境，AI 分割使用 CPU 推理"
-                               "（如需 GPU 请安装 CUDA 12.x + cuDNN 9.x 运行时）");
-                dev = "cpu";
-            }
-        }
-        if (dev == "cuda") {
-            OrtStatus* st = OrtSessionOptionsAppendExecutionProvider_CUDA(so, 0);
-            if (st == nullptr) {
-                useCuda = true;
-            } else {
-                common::LogMsg(common::LWARN,
-                               std::string("CUDA EP 注册失败（") +
-                                   Ort::GetApi().GetErrorMessage(st) + "），回退 CPU 推理");
-                Ort::GetApi().ReleaseStatus(st);
-            }
-        } else if (dev != "cpu") {
+        if (dev != "auto" && dev != "cuda" && dev != "cpu") {
             common::LogMsg(common::LWARN,
                            "无法识别的推理设备 [" + aiCfg_.device +
-                               "]，按 CPU 处理（可选 auto/cuda/cpu）");
+                               "]，按 auto 处理（可选 auto/cuda/cpu）");
+            dev = "auto";
         }
         const std::wstring wpath = Utf8ToWide(aiCfg_.onnx_model);
-        impl_->session.reset(new Ort::Session(impl_->env, wpath.c_str(), so));
+        bool useCuda = false;
+        // auto/cuda 都直接试注册 CUDA EP 并建 CUDA 会话，失败一律回退 CPU 重建
+        // （AI 分割能力不丢）。早年版本用 LoadLibraryEx 预检 provider DLL 的
+        // 依赖，实测会误报（依赖齐全时仍报 1114 初始化失败，而 ORT 自身的加载
+        // 路径完全正常），故废弃预检，直接以真实注册/建会话结果为判据。
+        if (dev == "auto" || dev == "cuda") {
+            Ort::SessionOptions soCuda = makeOptions();
+            OrtStatus* st = OrtSessionOptionsAppendExecutionProvider_CUDA(soCuda, 0);
+            if (st == nullptr) {
+                try {
+                    impl_->session.reset(
+                        new Ort::Session(impl_->env, wpath.c_str(), soCuda));
+                    useCuda = true;
+                } catch (const Ort::Exception& e) {
+                    common::LogMsg(common::LWARN,
+                                   std::string("CUDA 会话创建失败（") + e.what() +
+                                       "），回退 CPU 推理");
+                }
+            } else {
+                const std::string ortErr = Ort::GetApi().GetErrorMessage(st);
+                Ort::GetApi().ReleaseStatus(st);
+                if (dev == "cuda") {
+                    common::LogMsg(common::LWARN,
+                                   "CUDA EP 注册失败（" + ortErr + "），回退 CPU 推理");
+                } else {
+                    common::LogMsg(common::LINFO,
+                                   "未检测到可用的 CUDA 运行环境，AI 分割使用 CPU 推理"
+                                   "（如需 GPU 请安装 CUDA 12.x + cuDNN 9.x 运行时）");
+                }
+            }
+        }
+        if (!useCuda) {
+            Ort::SessionOptions so = makeOptions();
+            impl_->session.reset(new Ort::Session(impl_->env, wpath.c_str(), so));
+        }
 
         // 读取输入/输出张量信息（输入尺寸动态时按兜底值处理）
         Ort::AllocatorWithDefaultOptions alloc;

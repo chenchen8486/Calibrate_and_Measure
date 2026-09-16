@@ -13,6 +13,10 @@ temp/
 assets/checkerboard/*
 !assets/checkerboard/.gitkeep
 
+# 随包分发给集成本机的第三方库（约 850MB，不随 git 仓库分发）
+lib/
+lib.rar
+
 assets/calibration/*
 !assets/calibration/.gitkeep
 
