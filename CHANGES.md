@@ -5,7 +5,7 @@
 ## 使用说明
 
 1. 首次获取：克隆整个工程，或解压完整工程压缩包。
-2. 升级：打开最新一条记录，“修改”列的文件把新版逐一复制覆盖到本地相同路径，“新增”列直接拷入，“删除”列在本地手动删除。
+2. 升级：打开最新一条记录，“要替换的文件”把新版逐一复制覆盖到本地相同路径，“要新增的文件”直接拷入，“要删除的文件”在本地手动删除。
 3. config.ini 特殊处理：它承载现场参数（路径、阈值、正射刻度等），清单中会逐键列出改动内容，请按说明手工合并，不要整个文件直接覆盖。
 4. 清单中只要包含 src/ 下文件或 main.cpp，替换后必须重新编译（Release x64）。
 5. assets/、lib/、temp/、x64/ 不在 git 仓库内，随交付压缩包单独提供，如有变更会在对应条目备注中说明。
@@ -13,41 +13,77 @@
 
 ## v2.1.2（2026-09-20）
 
-　　变更摘要：背景建模交付流程简化（新增 `SetBackground` 接口、Init 缓存优先修复），功能 2 标定 QA 链路修复（质检图与校正验证闭环首次真正产出）。
+　　变了啥：背景建模流程简化（背景缓存优先、新增 SetBackground 接口），功能 2 标定质检修复（质检图与校正验证首次真正产出）。
 
-- 修改：src/measure/measure_pipeline.h/.cpp，Init 背景建模改为缓存存在即直接使用、不再强制 input_dir 有图。新增 SetBackground 现场学习背景
-- 修改：src/cam_api.h/.cpp，新增 `Measurer::SetBackground` 接口，版本号 2.1.1 改为 2.1.2
-- 修改：src/calibration/calibrator.cpp，QA 质检图文件名改 ASCII（修复 Windows 下中文名 imwrite 失败），projectPoints 输入输出深度统一为 32F（修复 QA02 重投影断言崩溃，校正验证闭环恢复运行）
-- 修改：README.md，接口总览加 SetBackground，6.1 节加背景建模三种方式与背景图要求，第 7 节加 NO_PRODUCT 分支说明与 iniPath 建议
-- 修改：.gitignore，temp/ 改为忽略内容、仅放行 background_model.bmp 入库
-- 修改：CHANGES.md，新增本条目
-- 新增：temp/background_model.bmp，随库分发的预生成背景缓存（绑定当前相机/光照/背板，现场场景变更后须重学替换）
-- 删除：无
+　　要替换的文件（新版覆盖本地同名文件，共 8 个，含源码，替换后须重新编译）：
 
-　　升级动作：替换上述文件后重新编译。config.ini 无变化。背景缓存沿用即可，也可按新流程用 SetBackground 重学一次。
+- src/measure/measure_pipeline.h、src/measure/measure_pipeline.cpp（Init 缓存优先，新增 SetBackground）
+- src/cam_api.h、src/cam_api.cpp（SetBackground 接口，版本号 2.1.2）
+- src/calibration/calibrator.cpp（功能 2 质检修复）
+- README.md（接口与背景建模说明更新）
+- .gitignore（temp/ 仅放行 background_model.bmp 入库）
+- CHANGES.md（本文件，变更清单更新）
+
+　　要新增的文件（拷入本地对应位置，共 1 个）：
+
+- temp/background_model.bmp（背景缓存，到新版工程 temp/ 下取）
+
+　　要删除的文件（本地手动删除）：
+
+- 无
+
+　　配置参数变更（config.ini 手工合并，勿整文件覆盖）：
+
+- 无
+
+　　替换后要做的事：重新编译（Release x64）。背景缓存沿用即可，也可按 README 6.1 节用 SetBackground 重学一次。
 
 ## v2.1.1（2026-09-20）
 
-　　变更摘要：正射刻度全线统一为 0.136 mm/px，与现场软件写死的像素当量对齐，消除 0.15 与 0.136 并存带来的口径歧义。本次无算法行为变化。
+　　变了啥：正射刻度统一为 0.136 mm/px，与现场软件口径对齐。无算法行为变化。
 
-- 修改：config.ini，[calibrate] target_mm_per_px 由 0.15 改为 0.136，注释重写。[rectify] 段补充联动说明注释（无新增有效键）
-- 修改：src/common/ini_config.h，两处 target_mm_per_px 兜底默认值 0.15 改为 0.136，注释同步
-- 修改：src/cam_api.cpp、src/cam_api.h，版本号 2.1.0 改为 2.1.1
-- 修改：README.md，像素换算默认刻度描述 0.15 改为 0.136，头部增加本清单导引一行
-- 修改：.gitignore，忽略 *.obj 编译散件与 input-bak/ 目录，移除 5.jpg 例外规则
-- 新增：CHANGES.md（本文件）
-- 删除：assets/test_data/input/5.jpg（测试数据不入库，本地备份在 input-bak/）
+　　要替换的文件（新版覆盖本地同名文件，共 6 个，含源码，替换后须重新编译）：
 
-　　升级动作：替换上述文件后重新编译。本地标定 XML 按现场流程用功能 2 重新生成，配置已带 0.136，无需手改。毫米换算为 像素 × 0.136。
+- config.ini（见下方参数变更）
+- src/common/ini_config.h（默认值同步 0.136）
+- src/cam_api.cpp、src/cam_api.h（版本号 2.1.1）
+- README.md（刻度描述同步，加本清单导引）
+- .gitignore（忽略编译散件与本地备份目录）
+
+　　要新增的文件（拷入本地对应位置，共 1 个）：
+
+- CHANGES.md（本文件，新版工程根目录下取）
+
+　　要删除的文件（本地手动删除，共 1 个）：
+
+- assets/test_data/input/5.jpg（测试数据移出仓库）
+
+　　配置参数变更（config.ini 手工合并，勿整文件覆盖）：
+
+- [calibrate] target_mm_per_px：由 0.15 改为 0.136（正射输出刻度，与现场软件写死的像素当量对齐）
+
+　　替换后要做的事：重新编译（Release x64），并用功能 2 重新生成标定 XML。毫米换算为 像素 × 0.136。
 
 ## 条目模板（后续版本复制本段，插到既有条目之前）
 
 ### vX.Y.Z（YYYY-MM-DD）
 
-　　变更摘要：一句话说明本次改了什么、为什么。
+　　变了啥：一两句白话，不写算法细节。
 
-- 修改：相对路径，改了什么（config.ini 逐键列出）
-- 新增：相对路径
-- 删除：相对路径（提醒本地手动删除）
+　　要替换的文件（新版覆盖本地同名文件。含源码时注明须重新编译）：
 
-　　升级动作：是否需要重新编译、重跑功能 2、改配置等。
+- 相对路径（一句白话说明）
+
+　　要新增的文件（拷入本地对应位置）：
+
+- 相对路径（一句白话说明）
+
+　　要删除的文件（本地手动删除）：
+
+- 相对路径
+
+　　配置参数变更（config.ini 逐键列出，手工合并，勿整文件覆盖）：
+
+- [段] 键：由 旧值 改为 新值（一句白话说明）
+
+　　替换后要做的事：重新编译 / 重跑功能 2 / 重学背景等，逐条写清。
