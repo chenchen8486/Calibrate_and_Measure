@@ -11,7 +11,7 @@
 namespace cam {
 
 const char* Version() {
-    return "2.1.1";
+    return "2.1.2";
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +85,19 @@ MeasureOutput Measurer::Measure(const cv::Mat& image, const std::string& debugTa
         }
     }
     return pipe_.Measure(input, debugTag);
+}
+
+bool Measurer::SetBackground(const cv::Mat& image, std::string& errMsg) {
+    if (!ready_) {
+        errMsg = "Measurer 未初始化（请先成功调用 Init）";
+        return false;
+    }
+    const cv::Mat gray = common::ToGray8(image);
+    if (gray.empty()) {
+        errMsg = "图像格式不支持（须 8UC1/8UC3/8UC4）";
+        return false;
+    }
+    return pipe_.SetBackground(gray, errMsg);
 }
 
 bool Measurer::RectifyEnabled() const {

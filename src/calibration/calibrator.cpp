@@ -447,14 +447,14 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
         cv::drawChessboardCorners(overlay, pattern, corners, true);
         PutQaText(overlay, "corners " + std::to_string(pattern.width) + "x" +
                   std::to_string(pattern.height) + "=" + std::to_string(corners.size()));
-        common::SaveImage(qaDir + "/01_角点检测叠加.bmp", overlay);
+        common::SaveImage(qaDir + "/01_corners_overlay.bmp", overlay);
     }
 
     // ---- 4. QA02：残差矢量图（红箭头 = 均值角点 → 模型投影点，放大 50 倍）----
     if (saveQa) {
         const std::vector<cv::Point3f> obj =
             BuildObjectGrid(calib.square_x_mm, calib.square_y_mm, pattern);
-        std::vector<cv::Point2d> projPts;
+        std::vector<cv::Point2f> projPts;  // 与 obj 深度一致（32F），混用 64F 会触发 OpenCV 断言
         try {
             cv::projectPoints(obj, calib.rvec, calib.tvec,
                               calib.camera_matrix, calib.dist_coeffs, projPts);
@@ -468,7 +468,7 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
         cv::Mat canvas;
         cv::cvtColor(gray, canvas, cv::COLOR_GRAY2BGR);
         for (size_t i = 0; i < projPts.size(); ++i) {
-            const cv::Point2d det = corners[i];
+            const cv::Point2f det = corners[i];
             errs.push_back(cv::norm(projPts[i] - det));
             const cv::Point p0(cvRound(det.x), cvRound(det.y));
             const cv::Point tip(cvRound(det.x + (projPts[i].x - det.x) * kResidualScale),
@@ -481,7 +481,7 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
                   "  mean " + FmtDouble(MeanOf(errs), 3) + "px" +
                   "  p95 " + FmtDouble(Percentile95(errs), 3) + "px" +
                   "  max " + FmtDouble(MaxOf(errs), 3) + "px");
-        common::SaveImage(qaDir + "/02_残差矢量图.bmp", canvas);
+        common::SaveImage(qaDir + "/02_residual_vectors.bmp", canvas);
     }
 
     // ---- 5. 正射矫正器（XML 回读 + 映射表构建）----
@@ -499,7 +499,7 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
         return false;
     }
     if (saveQa) {
-        common::SaveImage(qaDir + "/03_正射校正图.bmp", rectified);
+        common::SaveImage(qaDir + "/03_rectified.bmp", rectified);
     }
 
     // ---- 6. 验证闭环：校正图上重检角点，回理想网格比对 + 行列直线度 ----
@@ -565,7 +565,7 @@ bool FinishCalibrationAndQa(const cv::Mat& gray,
             PutQaText(qa, "rectified residual  mean " + FmtDouble(stats.mean_px, 2) +
                       "px  max " + FmtDouble(stats.max_px, 2) + "px" +
                       " (" + FmtDouble(stats.max_mm, 3) + "mm)");
-            common::SaveImage(qaDir + "/04_校正验证_角点回网格.bmp", qa);
+            common::SaveImage(qaDir + "/04_verify_grid.bmp", qa);
         }
     }
 

@@ -31,7 +31,7 @@
 namespace cam {
 
 // 门面版本号（随接口变更递增）
-// @return 版本串，当前 "2.1.1"
+// @return 版本串，当前 "2.1.2"
 const char* Version();
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,17 @@ public:
     //                 部署置 false 即零中间文件
     // @return MeasureOutput：code==OK 时 width/height/horizontalEdges/codeRegions 有效
     MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
+
+    // 现场学习背景：用一帧空背板图设置背景模型（换机/开班时调一次，
+    // 免放 input_dir 图、免手工维护缓存文件）。内部：转灰度 → 矫正开启时
+    // 同步正射校正 → 写入内存背景 → 尝试落盘 paths.background_file 缓存
+    // （写失败仅 Warn，本次会话仍生效；写成功则下次 Init 直接复用，
+    // 且缓存存在时 Init 不再要求 input_dir 有图）。
+    // 须在 Init 成功后调用。
+    // @param image  空背板图（8UC1/8UC3/8UC4，板上无任何产品）
+    // @param errMsg 输出参数：失败时的中文原因
+    // @return 背景设置成功返回 true
+    bool SetBackground(const cv::Mat& image, std::string& errMsg);
 
     // 几何矫正是否生效
     bool RectifyEnabled() const;

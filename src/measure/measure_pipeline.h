@@ -68,6 +68,20 @@ public:
     //   message 附中文原因。
     MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
 
+    // 现场学习背景：用一帧空背板灰度图（8UC1）替换背景模型，并尝试写回
+    // paths.background_file 缓存（写失败仅 Warn，本次会话仍生效）。
+    // 矫正开启时用同一标定文件同步正射校正（语义与 Init 背景建模一致）。
+    // 换机/开班时调一次即可，免放 input_dir 图、免手工维护缓存文件。
+    // 须在 Init 成功后调用。
+    //
+    // Args:
+    //   gray   空背板灰度图（8UC1，板上无任何产品；矫正开启时尺寸须与标定采图一致）。
+    //   errMsg 输出参数：失败时的中文原因。
+    //
+    // Returns:
+    //   背景设置成功返回 true。
+    bool SetBackground(const cv::Mat& gray, std::string& errMsg);
+
     // 全量配置（调试/可视化用）
     const common::AppConfig& Config() const { return cfg_; }
 

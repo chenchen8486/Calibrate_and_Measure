@@ -7,8 +7,10 @@ x64/
 # 本机第三方库路径配置（含绝对路径，各机器复制 opencv_onnx_paths.props.example 自行维护）
 opencv_onnx_paths.props
 
-# 本地临时文件（背景模型缓存、流程图中间稿等）
-temp/
+# 本地临时文件（QA 图、矫正预览、临时工具等）
+temp/*
+# 预生成背景模型缓存随库分发（功能 3 Init 缓存优先加载；现场场景变更后须重学替换）
+!temp/background_model.bmp
 
 # assets 只保留目录结构与示例图，数据与模型权重不入库（按需随包分发）
 assets/checkerboard/*

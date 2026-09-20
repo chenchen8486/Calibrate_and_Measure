@@ -100,11 +100,18 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
         return false;
     }
 
-    // 2) 背景建模：paths.input_dir 全量图 + background_file 缓存
+    // 2) 背景建模：background_file 缓存优先（缓存存在即直接用，不再要求
+    //    input_dir 有图——交付集成可只随包分发预生成缓存，或用 SetBackground
+    //    现场学习）；缓存缺失/不可读时才用 paths.input_dir 全量图现建并写缓存
     //    （产品位置各异，中位数才落在背板上；始终使用全量图集）
     const std::vector<std::string> imagePaths = common::ListImages(cfg_.paths.input_dir);
-    if (imagePaths.empty()) {
-        errMsg = "输入目录无图像: " + cfg_.paths.input_dir;
+    const bool hasBgCache =
+        std::filesystem::exists(cfg_.paths.background_file) &&
+        !std::filesystem::is_directory(cfg_.paths.background_file);
+    if (imagePaths.empty() && !hasBgCache) {
+        errMsg = "背景模型缓存不存在且输入目录无图像（background_file: " +
+                 cfg_.paths.background_file + "，input_dir: " + cfg_.paths.input_dir +
+                 "）。请放入空背板图用于背景建模，或在 Init 成功后调用 SetBackground";
         common::LogMsg(common::LERROR, errMsg);
         return false;
     }
@@ -183,6 +190,55 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
 
 bool MeasurePipeline::IsReady() const {
     return ready_;
+}
+
+bool MeasurePipeline::SetBackground(const cv::Mat& gray, std::string& errMsg) {
+    if (!ready_) {
+        errMsg = "流水线未初始化，请先成功调用 Init";
+        return false;
+    }
+    if (gray.empty() || gray.type() != CV_8UC1) {
+        errMsg = "背景图须为 8UC1 灰度（通道转换由门面层完成）";
+        return false;
+    }
+    // 矫正开启时用同一标定文件同步正射校正（与 Init 背景建模语义一致）；
+    // 矫正器加载失败沿用 Init 的降级策略：按未矫正设置（此时测量同样未矫正）
+    cv::Mat bg = gray;
+    if (cfg_.rectify.enabled) {
+        Rectifier rectifier;
+        std::string rectErr;
+        if (rectifier.Load(cfg_.rectify.calib_xml, cfg_.rectify.target_mm_per_px,
+                           rectErr)) {
+            cv::Mat r = rectifier.Rectify(gray);
+            if (r.empty()) {
+                errMsg = "背景图正射校正失败：尺寸与标定 image_size 不符";
+                common::LogMsg(common::LERROR, errMsg);
+                return false;
+            }
+            bg = r;
+        } else {
+            common::LogMsg(common::LWARN,
+                           "SetBackground: 标定不可用（" + rectErr + "），按未矫正设置背景");
+        }
+    }
+    if (!background_.empty() && background_.size() != bg.size()) {
+        errMsg = "背景图尺寸与当前背景模型不一致";
+        common::LogMsg(common::LERROR, errMsg);
+        return false;
+    }
+    background_ = bg;
+    // 缓存写原始灰度（未矫正），与 Init 背景建模的缓存语义一致：
+    // 下次 Init 加载缓存后按当时的矫正开关自行正射校正
+    if (common::SaveImage(cfg_.paths.background_file, gray)) {
+        common::LogMsg(common::LINFO,
+                       "背景模型已通过 SetBackground 更新并写入缓存: " +
+                           cfg_.paths.background_file);
+    } else {
+        common::LogMsg(common::LWARN,
+                       "背景模型缓存写入失败（本次会话仍生效）: " +
+                           cfg_.paths.background_file);
+    }
+    return true;
 }
 
 MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& debugTag) {
