@@ -103,7 +103,10 @@ struct CalibrateConfig {
                                 // 打印后用卡尺实测回填实际值
     double square_y_mm  = 15.0; // 实测纵向格距（毫米），同上
     std::string out_xml = "assets/calibration/checkerboard_calib.xml";  // 标定结果输出文件（相对 ini 目录）
-    double target_mm_per_px = 0.15;  // 标定后期望的像素当量（毫米/像素），用于 QA 评估
+    double target_mm_per_px = 0.136; // 正射输出图刻度（毫米/像素）：矫正图上 1 像素对应的板面
+                                // 毫米数，属输出采样密度，与相机原生分辨率无关（原生分辨率
+                                // 标定时已吸收进内参/外参）；只影响输出图大小与 px→mm 换算
+                                // 系数。与现场软件写死的 0.136 mm/px 对齐；ini 键缺失时的兜底值
     std::string qa_dir = "temp/calibration_qa";  // 标定质量检查图像输出目录（相对 ini 目录）
 };
 
@@ -112,8 +115,8 @@ struct RectifyConfig {
     bool enabled = false;  // 是否启用畸变矫正（标定未完成时可关闭）
     std::string calib_xml = "assets/calibration/checkerboard_calib.xml";  // 标定参数文件；
                                 // 缺省跟随 [calibrate] out_xml（相对 ini 目录，显式配置优先）
-    double target_mm_per_px = 0.15;  // 矫正后期望的像素当量（毫米/像素）；
-                                // 缺省跟随 [calibrate] target_mm_per_px
+    double target_mm_per_px = 0.136; // 正射刻度兜底值，语义同 CalibrateConfig；
+                                // 加载时缺省跟随 [calibrate] target_mm_per_px（实际总被覆盖）
 };
 
 // [paths] 通用路径

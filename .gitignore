@@ -2,6 +2,7 @@
 .vs/
 x64/
 *.user
+*.obj
 
 # 本机第三方库路径配置（含绝对路径，各机器复制 opencv_onnx_paths.props.example 自行维护）
 opencv_onnx_paths.props
@@ -25,7 +26,7 @@ assets/weights/*
 
 assets/test_data/input/*
 !assets/test_data/input/.gitkeep
-!assets/test_data/input/5.jpg
+assets/test_data/input-bak/
 
 assets/test_data/calibration/*
 !assets/test_data/calibration/.gitkeep
