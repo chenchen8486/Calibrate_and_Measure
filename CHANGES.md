@@ -13,12 +13,15 @@
 
 ## v2.1.2（2026-09-20）
 
-　　变了啥：背景建模流程简化（背景缓存优先、新增 SetBackground 接口），功能 2 标定质检修复（质检图与校正验证首次真正产出）。
+　　变了啥：背景建模交付化（缓存优先、新增 SetBackground 现场学习接口、生产与 demo 分家，Init 不再用 input_dir 现建背景），功能 2 标定质检修复（质检图与校正验证首次真正产出）。
 
-　　要替换的文件（新版覆盖本地同名文件，共 8 个，含源码，替换后须重新编译）：
+　　要替换的文件（新版覆盖本地同名文件，共 12 个，含源码，替换后须重新编译）：
 
-- src/measure/measure_pipeline.h、src/measure/measure_pipeline.cpp（Init 缓存优先，新增 SetBackground）
+- src/measure/measure_pipeline.h、src/measure/measure_pipeline.cpp（背景加载生产/demo 分家，新增 SetBackground）
 - src/cam_api.h、src/cam_api.cpp（SetBackground 接口，版本号 2.1.2）
+- src/measure_types.h（新增返回码 NO_BACKGROUND，背景未就绪时 Measure 返回它）
+- src/measure/background.h、src/measure/background.cpp（背景缓存加载函数）
+- main.cpp（demo 显式中位数建模）
 - src/calibration/calibrator.cpp（功能 2 质检修复）
 - README.md（接口与背景建模说明更新）
 - .gitignore（temp/ 仅放行 background_model.bmp 入库）
@@ -34,9 +37,9 @@
 
 　　配置参数变更（config.ini 手工合并，勿整文件覆盖）：
 
-- 无
+- 无有效键变更，仅 [paths] 注释更新（说明 input_dir 为 demo 专用），可不替换。
 
-　　替换后要做的事：重新编译（Release x64）。背景缓存沿用即可，也可按 README 6.1 节用 SetBackground 重学一次。
+　　替换后要做的事：重新编译（Release x64）。背景缓存沿用即可，软件集成按“启动 → 抓一帧 → SetBackground”做开班刷新，每次启动都执行，不要包在未就绪判断里。
 
 ## v2.1.1（2026-09-20）
 

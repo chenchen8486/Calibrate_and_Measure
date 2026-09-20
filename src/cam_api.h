@@ -74,9 +74,10 @@ public:
 
     // 一次性初始化（首次调用耗时秒级，之后 Measure 为正常单帧耗时）：
     //   1) 加载 iniPath 全部配置（相对路径按 ini 所在目录解析）；
-    //   2) 背景建模：paths.background_file 缓存优先，否则用
-    //      paths.input_dir 全量图现建并写缓存（交付现场可随包分发
-    //      预生成缓存，免放全量输入图）；
+    //   2) 背景加载：仅加载 paths.background_file 缓存；缓存缺失/不可读
+    //      不阻断，记 Warn 进入背景未就绪态（Measure 返回 NO_BACKGROUND），
+    //      由 SetBackground 现场学习补学——生产唯一建模入口，Init 不再
+    //      使用 input_dir 现建背景（中位数现建仅 demo 保留）；
     //   3) 分割器：segmentation.method=="ai" 时创建 ONNX 会话并完成
     //      预热（消除首帧卡顿）；模型缺失/加载失败自动回退传统分割
     //      并记 Warn，Init 仍成功（可用 UsingAi() 确认实际生效链路）；
@@ -102,11 +103,11 @@ public:
     MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
 
     // 现场学习背景：用一帧空背板图设置背景模型（换机/开班时调一次，
-    // 免放 input_dir 图、免手工维护缓存文件）。内部：转灰度 → 矫正开启时
-    // 同步正射校正 → 写入内存背景 → 尝试落盘 paths.background_file 缓存
-    // （写失败仅 Warn，本次会话仍生效；写成功则下次 Init 直接复用，
-    // 且缓存存在时 Init 不再要求 input_dir 有图）。
-    // 须在 Init 成功后调用。
+    // 生产环境唯一建模入口，免放 input_dir 图、免手工维护缓存文件）。
+    // 内部：转灰度 → 矫正开启时同步正射校正 → 写入内存背景 → 尝试落盘
+    // paths.background_file 缓存（写失败仅 Warn，本次会话仍生效；
+    // 写成功则下次 Init 直接加载复用）。
+    // 须在 Init 成功后调用；Init 处于背景未就绪态时亦可调用，调用后即就绪。
     // @param image  空背板图（8UC1/8UC3/8UC4，板上无任何产品）
     // @param errMsg 输出参数：失败时的中文原因
     // @return 背景设置成功返回 true

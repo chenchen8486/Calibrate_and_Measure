@@ -53,6 +53,18 @@ bool LoadOrBuildBackground(const std::vector<std::string>& imagePaths,
                            const std::string& cachePath,
                            cv::Mat& background, std::string& errMsg);
 
+// 仅加载缓存背景模型，不现建（生产交付路径的唯一文件来源）。
+//
+// Args:
+//   cachePath  背景模型缓存路径。
+//   background 输出参数：背景模型灰度图（8UC1）。
+//   errMsg     输出参数：失败时的中文错误描述。
+//
+// Returns:
+//   缓存存在且读取成功返回 true；不存在或读取失败返回 false 并填充 errMsg。
+bool LoadBackgroundCache(const std::string& cachePath,
+                         cv::Mat& background, std::string& errMsg);
+
 // 提取掩膜的最大面积外轮廓（findContours RETR_EXTERNAL + CHAIN_APPROX_NONE）。
 //
 // Args:

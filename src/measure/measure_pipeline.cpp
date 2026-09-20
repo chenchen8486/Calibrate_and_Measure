@@ -100,25 +100,18 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
         return false;
     }
 
-    // 2) 背景建模：background_file 缓存优先（缓存存在即直接用，不再要求
-    //    input_dir 有图——交付集成可只随包分发预生成缓存，或用 SetBackground
-    //    现场学习）；缓存缺失/不可读时才用 paths.input_dir 全量图现建并写缓存
-    //    （产品位置各异，中位数才落在背板上；始终使用全量图集）
-    const std::vector<std::string> imagePaths = common::ListImages(cfg_.paths.input_dir);
-    const bool hasBgCache =
-        std::filesystem::exists(cfg_.paths.background_file) &&
-        !std::filesystem::is_directory(cfg_.paths.background_file);
-    if (imagePaths.empty() && !hasBgCache) {
-        errMsg = "背景模型缓存不存在且输入目录无图像（background_file: " +
-                 cfg_.paths.background_file + "，input_dir: " + cfg_.paths.input_dir +
-                 "）。请放入空背板图用于背景建模，或在 Init 成功后调用 SetBackground";
-        common::LogMsg(common::LERROR, errMsg);
-        return false;
-    }
-    if (!LoadOrBuildBackground(imagePaths, cfg_.paths.background_file, background_,
-                               errMsg)) {
-        common::LogMsg(common::LERROR, "背景建模失败：" + errMsg);
-        return false;
+    // 2) 背景加载：仅认 background_file 缓存（生产部署的另一来源是 Init 后
+    //    SetBackground 现场学习）。缓存缺失/不可读不阻断：记 Warn 进入背景
+    //    未就绪态（background_ 为空），Measure 返回 NO_BACKGROUND 直至
+    //    SetBackground 补学。input_dir 中位数现建已从交付路径移除——该法
+    //    假定产品小且位置错开，前提脆弱，仅 demo（main.cpp 菜单 3）保留
+    if (!LoadBackgroundCache(cfg_.paths.background_file, background_, errMsg)) {
+        background_.release();
+        common::LogMsg(common::LWARN,
+                       "背景模型缓存不可用（" + errMsg +
+                       "），背景未就绪：Measure 将返回 NO_BACKGROUND，"
+                       "请清空背板后调 SetBackground 现场学习");
+        errMsg.clear();
     }
 
     // 2.5) 几何矫正开启时：背景模型与每张输入图过同一张 remap 表（对齐 Python
@@ -126,6 +119,7 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
     //      矫正器仅此处使用一次，无需长期持有，用局部对象即可。
     //      标定文件缺失/不可用或背景校正失败时不阻断流程：记 Warn 降级为
     //      未矫正运行，测量结果仅像素值（调用方可用 RectifyEnabled 查询）。
+    //      背景未就绪（background_ 为空）时跳过本步，SetBackground 时会按需重做
     if (cfg_.rectify.enabled) {
         Rectifier rectifier;
         std::string rectErr;
@@ -133,7 +127,7 @@ bool MeasurePipeline::Init(const std::string& iniPath, std::string& errMsg) {
                             rectErr)) {
             common::LogMsg(common::LWARN, "相机未标定或标定文件不可用（" + rectErr +
                            "），本次按未矫正运行，测量结果仅像素值");
-        } else {
+        } else if (!background_.empty()) {
             cv::Mat rectBg = rectifier.Rectify(background_);
             if (rectBg.empty()) {
                 common::LogMsg(common::LWARN,
@@ -256,6 +250,11 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
         if (gray.empty()) {
             return FailOutput(RetCode::BAD_FORMAT,
                               "图像格式不支持（须 8UC1/8UC3/8UC4）");
+        }
+        // 背景未就绪闸门：未加载缓存且未 SetBackground 时不进入任何分割逻辑
+        if (background_.empty()) {
+            return FailOutput(RetCode::NO_BACKGROUND,
+                              "背景未就绪：请清空背板后调 SetBackground 现场学习背景");
         }
         std::string err;
 

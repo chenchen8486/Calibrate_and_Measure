@@ -29,6 +29,7 @@
 #include "cam_api.h"
 #include "common/image_io.h"
 #include "common/ini_config.h"
+#include "measure/background.h"
 
 namespace {
 
@@ -206,7 +207,33 @@ void ReportOne(const std::string& imageName, const cam::MeasureOutput& out,
 }
 
 void RunMeasureBatch() {
-    // 1) 测量会话初始化（配置 + 背景建模 + 分割器预热 + 可选几何矫正，一次完成）
+    // 0) demo 专属：背景缓存缺失时用 input_dir 中位数现建并写缓存
+    //    （生产部署无此路径，交付软件一律 SetBackground 现场学习；
+    //    中位数假定产品小且位置错开，前提不满足时背景会被污染）
+    {
+        common::AppConfig preCfg;
+        std::string preErr;
+        if (preCfg.LoadFromIni(IniPath(), preErr) &&
+            !std::filesystem::exists(preCfg.paths.background_file)) {
+            const std::vector<std::string> bgSrc =
+                common::ListImages(preCfg.paths.input_dir);
+            if (!bgSrc.empty()) {
+                std::cout << "[提示] 背景缓存不存在，demo 用 input_dir 中位数现建"
+                             "（生产环境禁用此法，请用 SetBackground）" << std::endl;
+                cv::Mat bg;
+                std::string bgErr;
+                if (cam::BuildBackgroundModel(bgSrc, preCfg.paths.background_file,
+                                              bg, bgErr)) {
+                    std::cout << "[提示] 背景模型已现建并缓存: "
+                              << preCfg.paths.background_file << std::endl;
+                } else {
+                    std::cout << "[警告] 背景建模失败: " << bgErr << std::endl;
+                }
+            }
+        }
+    }
+
+    // 1) 测量会话初始化（配置 + 背景加载 + 分割器预热 + 可选几何矫正，一次完成）
     cam::Measurer measurer;
     std::string err;
     if (!measurer.Init(IniPath(), err)) {

@@ -138,15 +138,17 @@ measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统
 　　`Init` 是重操作，只做一次，内部依次完成：
 
 1. 加载 ini 全量配置。
-2. 背景建模：`[paths] background_file` 缓存优先，缓存存在即直接加载，不再要求 `[paths] input_dir` 有图。无缓存时才用 input_dir 全量图现建并写缓存。
+2. 背景加载：仅加载 `[paths] background_file` 缓存。缓存缺失或不可读不阻断，记 Warn 进入背景未就绪态（`Measure` 返回 `NO_BACKGROUND`），由 `SetBackground` 现场学习补学。Init 不再使用 input_dir 现建背景。
 3. 分割器：`[segmentation] method` 取 `ai` 时创建 ONNX 会话并完成预热。模型缺失/加载失败自动回退传统背景差分并记 Warn，Init 仍成功（用 `UsingAi()` 确认实际链路）。
 4. `[rectify] enabled=true` 时加载标定 XML 构建正射 remap 表。相机未标定或标定文件缺失时不阻断：记 Warn 降级为未矫正运行，测量照常（结果仅像素值），用 `RectifyEnabled()` 确认实际状态。矫正生效时 Init 还会用同一标定文件把背景模型同步正射校正，调用方无需处理。
 
-　　背景模型备妥有三种方式，按集成习惯任选：
+　　背景模型备妥分生产与 demo 两类路径：
 
-- 随包分发预生成缓存（零操作）：仓库已附带 `temp/background_model.bmp`（`background_file` 默认指向它），Init 直接加载。等效做法：自己拍一张空背板图放到该路径、保持同名，效果相同。
-- `SetBackground` 现场学习（一次调用）：Init 成功后，操作员确认背板无料，抓一帧调 `measurer.SetBackground(frame, err)`，背景即生效并自动写缓存，下次启动免设置。换机、换光照、开班时重复一次即可。
-- `input_dir` 现建（自用调试）：无缓存时在 `[paths] input_dir` 放空背板图（3~5 张），Init 自动按中位数建模并写缓存。
+- 生产路径一，预生成缓存（零操作）：仓库已附带 `temp/background_model.bmp`（`background_file` 默认指向它），Init 直接加载。等效做法：自己拍一张空背板图放到该路径、保持同名，效果相同。
+- 生产路径二，`SetBackground` 现场学习（一次调用，推荐）：Init 成功后，操作员确认背板无料，抓一帧调 `measurer.SetBackground(frame, err)`，背景即生效并自动写缓存，下次启动免设置。建议写在软件启动必经路径上，每次启动都刷新，避免缓存老化导致光源衰减失配。换机、换光照、开班时也必须重学。
+- demo 路径（仅离线批量）：无缓存时菜单功能 3 用 `[paths] input_dir` 全量图中位数现建并写缓存。该法假定产品小且位置错开，前提不满足时背景会被污染，生产环境禁用。
+
+　　缓存缺失且从未学习时 Init 仍成功，但 `Measure` 返回 `RetCode::NO_BACKGROUND`，软件收到该码后引导“清空背板 → 抓一帧 → SetBackground”即可（见第 7 节）。
 
 　　对背景图的四点要求，三种方式通用：
 
@@ -195,6 +197,7 @@ enum class RetCode : int {
     EMPTY_IMAGE = 1,    // 输入图像为空
     BAD_FORMAT  = 2,    // 图像格式不支持（须 8UC1/8UC3/8UC4）
     NO_PRODUCT  = 3,    // 未检出产品
+    NO_BACKGROUND = 4,  // 背景未就绪（缓存缺失且未 SetBackground，需先现场学习背景）
     INTERNAL    = 100   // 算法内部异常（message 附中文说明）
 };
 
@@ -294,6 +297,7 @@ codeRegions（1 个）:
 - 三个功能的菜单演示在 `main.cpp`，批量测量与 CSV 汇总也仅是演示代码。集成时按第 6 节的单帧流程对接即可。
 - 标定采图、背景建模、测量采图三者图像尺寸必须一致（同一相机同一分辨率）。
 - 空场景帧（背板上无产品）测量返回 `RetCode::NO_PRODUCT`，属正常分支：软件按“本帧无产品”跳过即可，不要当故障处理，更不要触发硬件调整。背景被污染（建模图里带产品）时，带产品的帧也会误判成 NO_PRODUCT，此时按 6.1 节重学背景即可恢复。
+- 背景未就绪（无缓存且未 `SetBackground`）时 `Measure` 返回 `RetCode::NO_BACKGROUND`，属预期分支：软件收到后引导“清空背板 → 抓一帧 → SetBackground”，不要反复重试 `Measure`。
 - `Init` 的 iniPath 建议传绝对路径。相对路径按 exe 位置启发式解析，集成进自己的目录结构时用绝对路径最稳。
 - 测量相关 ini 段速查：`[rectify]` 矫正开关与标定文件。`[paths]` 输入输出与背景缓存。`[segmentation] method` 选 `ai`（默认）或 `traditional`。`[trad_seg]` / `[refine]` / `[rotate]` / `[measure]` 为各算法参数，默认值与 Python 版 `configs/default.yaml` 对齐。`[code_detect]` 码区检测开关、方法（`method=traditional/ai`）与两支路共用过滤。`[code_detect_ai]`AI 支路后处理阈值（`threshold`/`min_area_ratio`/`max_count`，`method=ai` 时生效）。
 

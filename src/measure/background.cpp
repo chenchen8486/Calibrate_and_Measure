@@ -236,6 +236,24 @@ bool LoadOrBuildBackground(const std::vector<std::string>& imagePaths,
     return BuildBackgroundModel(imagePaths, cachePath, background, errMsg);
 }
 
+bool LoadBackgroundCache(const std::string& cachePath,
+                         cv::Mat& background, std::string& errMsg) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (cachePath.empty() || !fs::exists(cachePath, ec)) {
+        errMsg = "缓存文件不存在: " + cachePath;
+        return false;
+    }
+    cv::Mat g = common::ToGray8(common::LoadImageAny(cachePath));
+    if (g.empty()) {
+        errMsg = "缓存文件读取失败: " + cachePath;
+        return false;
+    }
+    common::LogMsg(common::LINFO, "加载缓存背景模型: " + cachePath);
+    background = g;
+    return true;
+}
+
 bool ExtractOuterContour(const cv::Mat& mask, std::vector<cv::Point>& contour,
                          std::string& errMsg) {
     std::vector<std::vector<cv::Point>> contours;
