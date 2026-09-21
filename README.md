@@ -135,14 +135,14 @@ measurer.MmPerPx();         // 毫米换算系数；矫正关闭时返回 0
 measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统后为 false）
 ```
 
-#### Init 内部做了什么
+### 6.1.1 Init 内部做了什么
 
 1. 加载 ini 全量配置。
 2. 加载背景图：只从 `[paths] background_file` 指向的本地 bmp 文件读入内存。文件缺失或读不了不报错，记一条 Warn 进入背景未就绪状态（之后 `Measure` 返回 `NO_BACKGROUND`），等软件调 `SetBackground` 现场补拍。Init 自己不会拿待测图现建背景。
 3. 创建分割器：`[segmentation] method` 取 `ai` 时创建 ONNX 会话并完成预热。模型缺失或加载失败时自动回退传统背景差分并记 Warn，Init 仍成功（用 `UsingAi()` 确认实际链路）。
 4. `[rectify] enabled=true` 时加载标定 XML 构建正射 remap 表。相机未标定或标定文件缺失时不阻断：记 Warn 降级为未矫正运行，测量照常（结果仅像素值），用 `RectifyEnabled()` 确认实际状态。矫正生效时 Init 还会用同一标定文件把背景图同步做正射矫正，调用方无需处理。
 
-#### 背景模型怎么准备
+### 6.1.2 背景模型怎么准备
 
 　　背景模型就是一张空背板照片，来源只有两种：本地 bmp 文件，或相机现拍一帧。两者不是配置开关，也不用切换，规则是后调者生效：
 
@@ -155,7 +155,7 @@ measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统
 
 　　背景没准备好时的表现：本地没有背景图、又从未调过 `SetBackground` 时，Init 仍成功，但 `Measure` 返回 `RetCode::NO_BACKGROUND`。软件收到该码后引导“清空背板 → 抓一帧 → SetBackground”即可（见第 7 节）。
 
-#### SetBackground 现场学习（推荐每次启动都调）
+### 6.1.3 SetBackground 现场学习（推荐每次启动都调）
 
 ```cpp
 bool cam::Measurer::SetBackground(const cv::Mat& frame, std::string& errMsg);
@@ -195,7 +195,7 @@ if (out.code == cam::RetCode::NO_BACKGROUND) {
 - frame 传相机原图即可（8/24/32 通道均可），矫正（若开启）由内部完成，不用自己先矫正。
 - 建议每次软件启动都调一次刷新，避免光源长期衰减后与旧背景图失配。换机、换光照、开班时也必须重学。
 
-#### 背景图的拍摄要求（三种方式通用）
+### 6.1.4 背景图的拍摄要求（三种方式通用）
 
 - 必须是空背板，板上没有任何产品。带产品的背景会把正常帧误判成 `NO_PRODUCT`（见第 7 节）。
 - 尺寸与相机出图一致（同一相机同一分辨率），差分按像素逐点计算。
@@ -204,7 +204,7 @@ if (out.code == cam::RetCode::NO_BACKGROUND) {
 
 　　背景绑的是“这台相机 + 这个光照 + 这块背板”，三者任一变化都要重学。相机、镜头、机位变化还要连带重跑功能 2 标定。
 
-#### 深度学习模型与预热
+### 6.1.5 深度学习模型与预热
 
 - AI 分割使用 ONNX Runtime 推理 `assets/weights/small.onnx`（RF-DETR-seg small，Python 侧导出）。`[ai_seg] device`：`auto`（默认，直接尝试注册 CUDA EP 并建会话，失败自动回退 CPU）/ `cuda`（强制 GPU，失败回退 CPU 并记 Warn）/ `cpu`。
 - 会话创建成功后自动做一次预热推理，Init 返回时预热已完成，调用方无需做任何事，也没有配置开关。预热的具体动作：用一张模型输入尺寸的合成纯灰图（灰度 128，尺寸跟随模型实际输入，如 384x384）跑一次完整推理，结果直接丢弃。计算图执行与图像内容无关，合成图足以触发全部首次开销。
