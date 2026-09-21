@@ -159,11 +159,35 @@ measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统
 
 ```cpp
 bool cam::Measurer::SetBackground(const cv::Mat& frame, std::string& errMsg);
+```
 
-// 建议流程：Init 成功后，操作员确认背板无料，抓一帧相机原图
+　　完整调用流程（Init 一次 → 抓帧设背景 → 逐帧测量）：
+
+```cpp
 std::string err;
-if (!measurer.SetBackground(frame, err)) {
-    // err 为中文原因（如背景图尺寸与当前背景不一致）
+cam::Measurer measurer;
+
+// 第 1 步，开机初始化（同 6.1 节，一次）
+if (!measurer.Init("config.ini", err)) { /* err 为中文失败原因 */ }
+
+// 第 2 步，操作员确认背板无料后，抓一帧相机原图设为背景
+cv::Mat backboard = /* 相机当前帧，8/24/32 通道均可，不用自己先矫正 */;
+if (!measurer.SetBackground(backboard, err)) {
+    // err 为中文失败原因（如背景图尺寸与当前背景不一致）
+}
+// 成功：本次会话立即生效，同时覆盖写入 [paths] background_file
+
+// 第 3 步，之后逐帧测量都用这份背景
+cv::Mat frame = /* 相机后续帧 */;
+cam::MeasureOutput out = measurer.Measure(frame, "tag");
+
+// 兜底分支：第 2 步没做（无缓存又从未设过背景）时，Measure 返回 NO_BACKGROUND
+if (out.code == cam::RetCode::NO_BACKGROUND) {
+    // 提示操作员清空背板，抓一帧重设背景，再重测当前帧
+    cv::Mat empty = /* 清空背板后的相机帧 */;
+    if (measurer.SetBackground(empty, err)) {
+        out = measurer.Measure(frame, "tag");
+    }
 }
 ```
 
