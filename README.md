@@ -61,9 +61,9 @@ if (out.code == cam::RetCode::OK) {
 | `Version()` | 门面版本串 | 任意 |
 | `MakeBoard(iniPath, errMsg)` | 功能 1：生成标定板 PDF + 预览图 + 打印说明 | 按需 |
 | `Calibrate(images, iniPath, report, errMsg)` | 功能 2：标定求解，1~n 张采图，返回 `CalibReport` | 换机位/换板时一次 |
-| `Measurer::Init(iniPath, errMsg)` | 功能 3 初始化：配置 + 背景建模 + ONNX 会话预热 + 可选矫正 | 启动时一次 |
+| `Measurer::Init(iniPath, errMsg)` | 功能 3 初始化：配置 + 背景加载 + ONNX 会话预热 + 可选矫正 | 启动时一次 |
 | `Measurer::Measure(image, debugTag)` | 功能 3 单帧测量：矫正（内部）→ 分割 → 旋转校正 → 宽高、水平边与码区 | 逐帧 |
-| `Measurer::SetBackground(image, errMsg)` | 现场学习背景：一帧空背板图设置背景并自动写缓存 | 换机/开班时 |
+| `Measurer::SetBackground(image, errMsg)` | 现场学习背景：一帧空背板图设置背景，覆盖写入本地缓存 | 每次启动（推荐）/换机/开班 |
 | `Measurer::MmPerPx()` / `RectifyEnabled()` / `UsingAi()` | 运行形态查询与毫米换算 | 任意 |
 
 ## 3. 共同约定（三个功能都适用）
@@ -144,18 +144,32 @@ measurer.UsingAi();         // 实际生效的分割是否 AI 链（回退传统
 
 #### 背景模型怎么准备
 
-　　背景模型就是一张空背板照片，只有两种形态：本地 bmp 文件（Init 启动时读进内存），或相机现拍一帧（`SetBackground` 放进内存立即生效，同时自动存到本地文件）。准备路径分生产环境和 demo 两类。
+　　背景模型就是一张空背板照片，来源只有两种：本地 bmp 文件，或相机现拍一帧。两者不是配置开关，也不用切换，规则是后调者生效：
 
-　　生产环境（两种方式二选一）：
-
-- 方式一，本地背景图文件（零代码）：仓库已附带 `temp/background_model.bmp`，`[paths] background_file` 默认指向它，Init 直接加载，不用做任何事。也可以自己拍一张空背板图放到该路径、保持同名，效果一样。
-- 方式二，`SetBackground` 现场学习（推荐）：Init 成功后，操作员确认背板无料，软件从相机抓一帧调 `measurer.SetBackground(frame, err)`，背景即生效并自动写到 `background_file` 路径，下次启动免设置。建议写在软件启动必经路径上，每次启动都刷新一次，避免光源长期衰减后与旧背景图失配。换机、换光照、开班时也必须重学。
+1. Init 启动时，`[paths] background_file` 指向的本地文件存在就直接加载（仓库已附带 `temp/background_model.bmp`，零操作）。也可以自己拍一张空背板图放到该路径、保持同名。
+2. Init 之后任何时刻，抓一帧调 `SetBackground`，这帧立即替换内存背景，之后所有 `Measure` 都用它。本地有没有存图、存图多旧，都不影响这个调用。
 
 　　demo 离线调试（仅菜单功能 3，生产环境禁用）：
 
 - 本地没有背景图时，菜单功能 3 会把 `[paths] input_dir` 里的全部待测图做中位数叠加，现建一张背景图并写入本地缓存。这个做法假定产品小且位置错开，前提不满足时背景会被产品污染。
 
 　　背景没准备好时的表现：本地没有背景图、又从未调过 `SetBackground` 时，Init 仍成功，但 `Measure` 返回 `RetCode::NO_BACKGROUND`。软件收到该码后引导“清空背板 → 抓一帧 → SetBackground”即可（见第 7 节）。
+
+#### SetBackground 现场学习（推荐每次启动都调）
+
+```cpp
+bool cam::Measurer::SetBackground(const cv::Mat& frame, std::string& errMsg);
+
+// 建议流程：Init 成功后，操作员确认背板无料，抓一帧相机原图
+std::string err;
+if (!measurer.SetBackground(frame, err)) {
+    // err 为中文原因（如背景图尺寸与当前背景不一致）
+}
+```
+
+- 调用成功这一帧无条件覆盖本地存图：内存背景立即生效，同时把原始灰度图写回 `background_file` 路径，下次启动 Init 读到的就是这张新图。写盘失败只记 Warn，本次会话照常生效。
+- frame 传相机原图即可（8/24/32 通道均可），矫正（若开启）由内部完成，不用自己先矫正。
+- 建议每次软件启动都调一次刷新，避免光源长期衰减后与旧背景图失配。换机、换光照、开班时也必须重学。
 
 #### 背景图的拍摄要求（三种方式通用）
 

@@ -19,7 +19,7 @@
 | `src/measure/background.cpp` | 背景缓存加载函数 |
 | `main.cpp` | demo 显式中位数建模 |
 | `src/calibration/calibrator.cpp` | 功能 2 质检修复 |
-| `README.md` | 接口说明更新，6.1 节按主题分块重排 |
+| `README.md` | 接口说明更新，6.1 节新增 SetBackground 调用说明 |
 | `.gitignore` | temp/ 仅放行 background_model.bmp 入库 |
 | `CHANGES.md` | 本文件，变更清单更新 |
 
