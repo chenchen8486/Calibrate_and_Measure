@@ -268,8 +268,12 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
         cv::Mat mask, aligned;
         if (useAi_) {
             std::string desc;
-            if (!aiSeg_->Segment(gray, background_, mask, desc)) {
-                return FailOutput(RetCode::NO_PRODUCT, "AI 分割失败：" + desc);
+            RetCode segCode = RetCode::NO_PRODUCT;
+            if (!aiSeg_->Segment(gray, background_, mask, desc, &segCode)) {
+                return FailOutput(segCode, (segCode == RetCode::AI_MISS
+                                                ? "AI 漏检："
+                                                : "AI 分割失败：") +
+                                               desc);
             }
             common::LogMsg(common::LINFO, "AI 分割来源: " + desc);
             aligned = BuildEnhanced(gray, background_, cfg_.trad_seg);
@@ -420,6 +424,8 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
     } catch (const std::exception& e) {
         return FailOutput(RetCode::INTERNAL,
                           std::string("测量流程内部异常：") + e.what());
+    } catch (...) {
+        return FailOutput(RetCode::INTERNAL, "测量流程未知异常");
     }
 }
 

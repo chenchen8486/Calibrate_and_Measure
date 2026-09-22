@@ -21,6 +21,8 @@ enum class RetCode : int {
     BAD_FORMAT  = 2,    // 图像格式不支持（须 8UC1/8UC3/8UC4）
     NO_PRODUCT  = 3,    // 未检出产品
     NO_BACKGROUND = 4,  // 背景未就绪（缓存缺失且未 SetBackground，需先现场学习背景）
+    AI_MISS     = 5,    // AI 漏检：ROI 内有物体但模型未识别为目标（板上无目标产品
+                        // 或模型失效），不再静默兜底出数，须人工复核
     INTERNAL    = 100   // 算法内部异常（message 附中文说明）
 };
 

@@ -247,6 +247,8 @@ enum class RetCode : int {
     BAD_FORMAT  = 2,    // 图像格式不支持（须 8UC1/8UC3/8UC4）
     NO_PRODUCT  = 3,    // 未检出产品
     NO_BACKGROUND = 4,  // 背景未就绪（缓存缺失且未 SetBackground，需先现场学习背景）
+    AI_MISS     = 5,    // AI 漏检：ROI 内有物体但模型未识别为目标（板上无目标产品
+                        // 或模型失效），不再静默兜底出数，须人工复核
     INTERNAL    = 100   // 算法内部异常（message 附中文说明）
 };
 
@@ -347,6 +349,8 @@ codeRegions（1 个）:
 - 标定采图、背景建模、测量采图三者图像尺寸必须一致（同一相机同一分辨率）。
 - 空场景帧（背板上无产品）测量返回 `RetCode::NO_PRODUCT`，属正常分支：软件按“本帧无产品”跳过即可，不要当故障处理，更不要触发硬件调整。背景被污染（建模图里带产品）时，带产品的帧也会误判成 NO_PRODUCT，此时按 6.1 节重学背景即可恢复。
 - 背景未就绪（无缓存且未 `SetBackground`）时 `Measure` 返回 `RetCode::NO_BACKGROUND`，属预期分支：软件收到后引导“清空背板 → 抓一帧 → SetBackground”，不要反复重试 `Measure`。
+- 板上有物体但 AI 模型认不出目标产品时返回 `RetCode::AI_MISS`（仅 AI 分割链路会产生）。这帧不会给任何宽高数据，软件不要拿它调硬件，按“疑似放错物料或模型失效”提示人工复核即可。传统分割链路（`method=traditional`）没有目标识别能力，不产生此码，板上放任何大物体都会当产品出数。
+- `Measure`/`Init`/`SetBackground` 内部任何异常（含未知异常）都会捕获为 `INTERNAL` 错误码或 `false`+errMsg 返回，接口不会向外抛异常。调用方程序出现无返回、卡死时，先核对部署的 DLL 是否与 exe 同目录且版本一致：`onnxruntime.dll` 被 System32 或 PATH 里的旧版本劫持时，会在创建分割会话阶段崩溃，表现为无任何错误码返回。
 - `Init` 的 iniPath 建议传绝对路径。相对路径按 exe 位置启发式解析，集成进自己的目录结构时用绝对路径最稳。
 - 测量相关 ini 段速查：`[rectify]` 矫正开关与标定文件。`[paths]` 输入输出与背景缓存。`[segmentation] method` 选 `ai`（默认）或 `traditional`。`[trad_seg]` / `[refine]` / `[rotate]` / `[measure]` 为各算法参数，默认值与 Python 版 `configs/default.yaml` 对齐。`[code_detect]` 码区检测开关、方法（`method=traditional/ai`）与两支路共用过滤。`[code_detect_ai]` AI 支路后处理阈值（`threshold`/`min_area_ratio`/`max_count`，`method=ai` 时生效）。
 
@@ -360,7 +364,7 @@ codeRegions（1 个）:
 ## 9. 依赖与分发清单
 
 - 开发/编译：Visual Studio 2019（v142）+ C++17。OpenCV 4.8.0。ONNX Runtime GPU 版 1.20.1。首次编译前把 `opencv_onnx_paths.props.example` 复制为 `opencv_onnx_paths.props` 并改成本机库路径（全工程唯一需要手改的文件。它含本机绝对路径，不入库，各机器各自维护）。
-- 随软件分发的运行时 dll：
+- 随软件分发的运行时 dll（全部必须放 exe 同目录，不能依赖 System32 或 PATH 里已有的同名 dll。版本不一致时 Windows 会优先加载 System32 里的旧版，直接导致初始化崩溃且无错误码返回）：
 　　▸ `opencv_world480.dll`
 　　▸ `onnxruntime.dll`（AI 分割必需）
 　　▸ `onnxruntime_providers_cuda.dll` 与 `onnxruntime_providers_shared.dll`（仅 GPU 模式需要）

@@ -69,8 +69,9 @@ public:
     //
     // Returns:
     //   MeasureOutput：code==OK 时 width/height/horizontalEdges/codeRegions 有效；
-    //   失败时 code 取 EMPTY_IMAGE / BAD_FORMAT / NO_PRODUCT / INTERNAL，
-    //   message 附中文原因。
+    //   失败时 code 取 EMPTY_IMAGE / BAD_FORMAT / NO_PRODUCT / NO_BACKGROUND /
+    //   AI_MISS / INTERNAL，message 附中文原因；任何内部异常（含未知异常）
+    //   都在本层捕获为 INTERNAL，不会抛给调用方。
     MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "",
                           cv::Mat* basisImage = nullptr);
 

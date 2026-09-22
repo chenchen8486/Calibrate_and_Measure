@@ -11,7 +11,8 @@
 //   1. 所有函数以 ini 配置文件路径为配置入口，显式传参，无任何隐式全局状态；
 //      ini 内的相对路径一律相对 ini 文件所在目录解析，ini 可放任意位置。
 //   2. 错误模型统一：初始化类调用返回 bool + errMsg（中文原因）；
-//      逐帧测量返回 MeasureOutput（code 四档 + message），见 measure_types.h。
+//      逐帧测量返回 MeasureOutput（code 六档 + message），见 measure_types.h；
+//      所有接口内部异常均在门面内捕获为错误返回，绝不抛给调用方。
 //   3. 几何矫正（rectify.enabled=true 时）由 Measurer 内部完成，调用方只传
 //      相机原图，不需要也不应该自己先调 Rectifier（标定文件一致性由门面保证）。
 //   4. Measurer 非线程安全，多相机场景请每相机一个实例并各自串行调用。
@@ -31,7 +32,7 @@
 namespace cam {
 
 // 门面版本号（随接口变更递增）
-// @return 版本串，当前 "2.1.3"
+// @return 版本串，当前 "2.1.4"
 const char* Version();
 
 // ---------------------------------------------------------------------------

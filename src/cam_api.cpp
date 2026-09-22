@@ -11,7 +11,7 @@
 namespace cam {
 
 const char* Version() {
-    return "2.1.3";
+    return "2.1.4";
 }
 
 // ---------------------------------------------------------------------------
@@ -40,27 +40,36 @@ Measurer::~Measurer() = default;
 
 bool Measurer::Init(const std::string& iniPath, std::string& errMsg) {
     ready_ = false;
-
-    // 1)~3)：配置 + 背景建模 + 分割器（含 ONNX 会话预热与回退）
-    if (!pipe_.Init(iniPath, errMsg)) {
-        return false;
-    }
-
-    // 4) 几何矫正（可选）：与流水线共用同一标定文件，一致性由门面保证。
-    //    标定文件缺失/加载失败不阻断初始化：记 Warn 降级为未矫正运行，
-    //    测量照常（结果仅像素值），调用方可用 RectifyEnabled() 确认。
-    const common::AppConfig& cfg = pipe_.Config();
-    if (cfg.rectify.enabled) {
-        std::string rectErr;
-        if (!rectifier_.Load(cfg.rectify.calib_xml, cfg.rectify.target_mm_per_px,
-                             rectErr)) {
-            common::LogMsg(common::LWARN, "相机未标定或标定文件不可用（" + rectErr +
-                           "），已跳过几何矫正，测量结果仅像素值");
+    try {
+        // 1)~3)：配置 + 背景建模 + 分割器（含 ONNX 会话预热与回退）
+        if (!pipe_.Init(iniPath, errMsg)) {
+            return false;
         }
-    }
 
-    ready_ = true;
-    return true;
+        // 4) 几何矫正（可选）：与流水线共用同一标定文件，一致性由门面保证。
+        //    标定文件缺失/加载失败不阻断初始化：记 Warn 降级为未矫正运行，
+        //    测量照常（结果仅像素值），调用方可用 RectifyEnabled() 确认。
+        const common::AppConfig& cfg = pipe_.Config();
+        if (cfg.rectify.enabled) {
+            std::string rectErr;
+            if (!rectifier_.Load(cfg.rectify.calib_xml, cfg.rectify.target_mm_per_px,
+                                 rectErr)) {
+                common::LogMsg(common::LWARN, "相机未标定或标定文件不可用（" + rectErr +
+                               "），已跳过几何矫正，测量结果仅像素值");
+            }
+        }
+
+        ready_ = true;
+        return true;
+    } catch (const cv::Exception& e) {
+        errMsg = std::string("Init OpenCV 异常：") + e.what();
+    } catch (const std::exception& e) {
+        errMsg = std::string("Init 内部异常：") + e.what();
+    } catch (...) {
+        errMsg = "Init 未知异常";
+    }
+    common::LogMsg(common::LERROR, errMsg);
+    return false;
 }
 
 MeasureOutput Measurer::Measure(const cv::Mat& image, const std::string& debugTag,
@@ -68,40 +77,69 @@ MeasureOutput Measurer::Measure(const cv::Mat& image, const std::string& debugTa
     if (basisImage) {
         basisImage->release();  // 保证任何失败分支都不留上一次的旧图
     }
-    if (!ready_) {
-        MeasureOutput out;
-        out.code = RetCode::INTERNAL;
-        out.message = "Measurer 未初始化（请先成功调用 Init）";
-        return out;
-    }
-
-    // 矫正开启时：原图 → 灰度 → 正射矫正（尺寸须与标定采图一致）；
-    // 矫正关闭时原图直进测量（MeasurePipeline 内部自行转灰度）
-    cv::Mat input = image;
-    if (rectifier_.IsReady()) {
-        const cv::Mat gray = common::ToGray8(image);
-        input = rectifier_.Rectify(gray);
-        if (input.empty()) {
+    // 边界保证：任何内部异常都在本函数内捕获为 INTERNAL 错误码返回，
+    // 绝不抛给调用方（防宿主进程 std::terminate 表现为卡死/闪退）
+    try {
+        if (!ready_) {
             MeasureOutput out;
             out.code = RetCode::INTERNAL;
-            out.message = "正射校正失败（图像尺寸须与标定采图一致）";
+            out.message = "Measurer 未初始化（请先成功调用 Init）";
             return out;
         }
+
+        // 矫正开启时：原图 → 灰度 → 正射矫正（尺寸须与标定采图一致）；
+        // 矫正关闭时原图直进测量（MeasurePipeline 内部自行转灰度）
+        cv::Mat input = image;
+        if (rectifier_.IsReady()) {
+            const cv::Mat gray = common::ToGray8(image);
+            input = rectifier_.Rectify(gray);
+            if (input.empty()) {
+                MeasureOutput out;
+                out.code = RetCode::INTERNAL;
+                out.message = "正射校正失败（图像尺寸须与标定采图一致）";
+                return out;
+            }
+        }
+        return pipe_.Measure(input, debugTag, basisImage);
+    } catch (const cv::Exception& e) {
+        MeasureOutput out;
+        out.code = RetCode::INTERNAL;
+        out.message = std::string("Measure OpenCV 异常：") + e.what();
+        return out;
+    } catch (const std::exception& e) {
+        MeasureOutput out;
+        out.code = RetCode::INTERNAL;
+        out.message = std::string("Measure 内部异常：") + e.what();
+        return out;
+    } catch (...) {
+        MeasureOutput out;
+        out.code = RetCode::INTERNAL;
+        out.message = "Measure 未知异常";
+        return out;
     }
-    return pipe_.Measure(input, debugTag, basisImage);
 }
 
 bool Measurer::SetBackground(const cv::Mat& image, std::string& errMsg) {
-    if (!ready_) {
-        errMsg = "Measurer 未初始化（请先成功调用 Init）";
-        return false;
+    try {
+        if (!ready_) {
+            errMsg = "Measurer 未初始化（请先成功调用 Init）";
+            return false;
+        }
+        const cv::Mat gray = common::ToGray8(image);
+        if (gray.empty()) {
+            errMsg = "图像格式不支持（须 8UC1/8UC3/8UC4）";
+            return false;
+        }
+        return pipe_.SetBackground(gray, errMsg);
+    } catch (const cv::Exception& e) {
+        errMsg = std::string("SetBackground OpenCV 异常：") + e.what();
+    } catch (const std::exception& e) {
+        errMsg = std::string("SetBackground 内部异常：") + e.what();
+    } catch (...) {
+        errMsg = "SetBackground 未知异常";
     }
-    const cv::Mat gray = common::ToGray8(image);
-    if (gray.empty()) {
-        errMsg = "图像格式不支持（须 8UC1/8UC3/8UC4）";
-        return false;
-    }
-    return pipe_.SetBackground(gray, errMsg);
+    common::LogMsg(common::LERROR, errMsg);
+    return false;
 }
 
 bool Measurer::RectifyEnabled() const {

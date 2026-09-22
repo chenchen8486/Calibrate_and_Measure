@@ -4,7 +4,8 @@
 // ----------------------------------------------------------------------------
 // 对照 Python 工程 scripts/predict_seg.py 的 predict_mask_with_roi 流程：
 //   传统背景差分粗定位（ROI 级 100% 召回）-> bbox 外扩 -> crop 放大推理 ->
-//   最大面积实例掩膜映射回原图 -> 与 ROI 取交集；漏检时回退传统粗掩膜。
+//   最大面积实例掩膜映射回原图 -> 与 ROI 取交集；
+//   漏检不兜底出数，经 failCode 上报 AI_MISS 由调用方复核。
 // ============================================================================
 
 #include <memory>
@@ -13,6 +14,7 @@
 #include <opencv2/core.hpp>
 
 #include "common/ini_config.h"
+#include "measure_types.h"
 
 namespace cam {
 
@@ -27,12 +29,17 @@ public:
     //   gray       8UC1 灰度图。
     //   background 背景模型（用于传统粗定位）。
     //   mask       输出参数：产品二值掩膜（H, W），前景 255。
-    //   desc       输出参数：来源描述（"ai" / "fallback" + 检测置信度信息）。
+    //   desc       输出参数：来源描述（"ai" + 检测置信度信息；失败时为中文原因）。
+    //   failCode   可选输出参数：失败原因码（NO_PRODUCT=粗定位无前景 /
+    //              AI_MISS=ROI 内有物体但模型未识别 / INTERNAL=推理异常），
+    //              传 nullptr 忽略。
     //
     // Returns:
-    //   成功返回 true（含 fallback 兜底成功）；粗定位失败或分割器未就绪返回 false。
+    //   成功返回 true；粗定位失败、AI 漏检或分割器未就绪返回 false
+    //   （漏检不再退回粗掩膜兜底出数，避免非目标杂物被当成产品测量）。
     virtual bool Segment(const cv::Mat& gray, const cv::Mat& background,
-                         cv::Mat& mask, std::string& desc) = 0;
+                         cv::Mat& mask, std::string& desc,
+                         RetCode* failCode = nullptr) = 0;
 
     // 指定类别的实例掩膜推理（AI 码区检测用）：整图直接推理（不做 ROI crop），
     // 每个"argmax 类为目标类且置信度过阈"的查询产出一幅原图尺度二值掩膜。
@@ -75,7 +82,8 @@ public:
     const std::string& LastError() const { return lastError_; }
 
     bool Segment(const cv::Mat& gray, const cv::Mat& background,
-                 cv::Mat& mask, std::string& desc) override;
+                 cv::Mat& mask, std::string& desc,
+                 RetCode* failCode = nullptr) override;
 
     bool InferClassMasks(const cv::Mat& gray, int targetClass, double threshold,
                          std::vector<cv::Mat>& classMasks,

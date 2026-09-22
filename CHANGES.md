@@ -4,7 +4,40 @@
 
 ---
 
-## v2.1.3（2026-09-22）
+## v2.1.4（2026-09-22）
+
+　　变更记录：新增返回码 AI_MISS(5)。AI 分割链路中，板上有物体但模型认不出目标产品时，旧版会静默退回传统粗掩膜，把杂物当产品输出一组假宽高，本版改为直接返回 AI_MISS 且不给任何测量数据，由软件提示人工复核。同时给 Init / Measure / SetBackground 三个入口补全异常兜底：任何内部异常（含未知异常）都捕获为 INTERNAL 错误码或 false+errMsg 返回，接口不再向外抛异常（旧版异常会抛给调用方，宿主程序表现为无返回、卡死或闪退）。
+
+### 要替换的文件（8 个，含源码，替换后须重新编译）
+
+| 文件 | 变化说明 |
+|---|---|
+| `src/measure_types.h` | 新增返回码 AI_MISS = 5 |
+| `src/measure/segment_ai.h` | Segment 新增 failCode 输出参数，删除漏检退回粗掩膜约定 |
+| `src/measure/segment_ai.cpp` | AI 漏检返回 AI_MISS，ONNX 推理异常返回 INTERNAL，不再兜底出数 |
+| `src/measure/measure_pipeline.h` | Measure 返回码说明补 AI_MISS / NO_BACKGROUND 与异常兜底约定 |
+| `src/measure/measure_pipeline.cpp` | AI 分割失败按原因码透传，补 catch(...) 未知异常兜底 |
+| `src/cam_api.h` | 错误模型注释更新，版本号 2.1.4 |
+| `src/cam_api.cpp` | Init / Measure / SetBackground 全面 try/catch，版本号 2.1.4 |
+| `README.md` | 返回码表新增 AI_MISS，第 7 节补 AI_MISS 处理建议与 DLL 版本劫持说明 |
+
+### 要新增的文件
+
+　　本版无。
+
+### 要删除的文件
+
+　　本版无。
+
+### 配置参数变更（config.ini 手工合并，勿整文件覆盖）
+
+　　无变更，config.ini 无需替换。
+
+### 替换后要做的事
+
+　　重新编译（Release x64）。软件代码不改也能编译通过。建议软件对 AI_MISS 做分支处理：收到后按“疑似放错物料或模型失效”提示人工复核，本帧不要触发任何硬件调整。另请核对部署目录：onnxruntime.dll 等运行时库必须与 exe 同目录，System32 或 PATH 里的旧版同名 dll 会被 Windows 优先加载，导致初始化崩溃且无任何错误码返回（本机已实测复现）。背景缓存 temp/background_model.bmp 已同步为当前场景空板图，随仓库更新即可，场景变更后按 README 6.1 节重学替换。
+
+---
 
 　　变更记录：Measure 新增可选输出旋转校正后的测量基准图（第 3 个参数 basisImage）。传指针即拿到测量实际使用的那张图，灰度 8UC1，不画任何标注。正射矫正是否参与由 [rectify] enabled 决定，与原来一致。不传参数时行为与旧版完全一致。
 

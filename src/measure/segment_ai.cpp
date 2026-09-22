@@ -431,24 +431,28 @@ bool OnnxSegmenter::InferClassMasks(const cv::Mat& gray, int targetClass, double
 }
 
 bool OnnxSegmenter::Segment(const cv::Mat& gray, const cv::Mat& background,
-                            cv::Mat& mask, std::string& desc) {
-    if (!ready_) {
-        desc = "AI 分割器未就绪：" + lastError_;
+                            cv::Mat& mask, std::string& desc, RetCode* failCode) {
+    auto fail = [&](RetCode code, const std::string& d) {
+        if (failCode) {
+            *failCode = code;
+        }
+        desc = d;
         return false;
+    };
+    if (!ready_) {
+        return fail(RetCode::INTERNAL, "AI 分割器未就绪：" + lastError_);
     }
     // 1) 传统背景差分粗定位（ROI 级 100% 召回，局部边缘缺陷不影响）
     cv::Mat coarse;
     std::string err;
     if (!SegmentProduct(gray, background, tradCfg_, coarse, nullptr, err)) {
-        desc = "传统粗定位失败：" + err;
-        return false;
+        return fail(RetCode::NO_PRODUCT, "传统粗定位失败：" + err);
     }
     // 2) 粗掩膜包围盒外扩 expand_ratio 后 crop（放大后目标占比大，召回质变）
     std::vector<cv::Point> nz;
     cv::findNonZero(coarse, nz);
     if (nz.empty()) {
-        desc = "传统粗定位失败：粗掩膜为空";
-        return false;
+        return fail(RetCode::NO_PRODUCT, "传统粗定位失败：粗掩膜为空");
     }
     const cv::Rect bbox = cv::boundingRect(nz);
     const int h = gray.rows, w = gray.cols;
@@ -459,30 +463,30 @@ bool OnnxSegmenter::Segment(const cv::Mat& gray, const cv::Mat& background,
     const int cy1 = std::min(h, bbox.y + bbox.height + margin);
     const cv::Rect roi(cx0, cy0, cx1 - cx0, cy1 - cy0);
     if (roi.width <= 0 || roi.height <= 0) {
-        desc = "传统粗定位失败：ROI 非法";
-        return false;
+        return fail(RetCode::NO_PRODUCT, "传统粗定位失败：ROI 非法");
     }
     const cv::Mat crop = gray(roi).clone();
     common::LogMsg(common::LDEBUG,
                    Fmt("ROI crop: [%d:%d, %d:%d] 尺寸 %dx%d", cy0, cy1, cx0, cx1,
                        roi.width, roi.height));
 
-    // 3) ONNX 推理；漏检或推理失败退回传统粗掩膜兜底
+    // 3) ONNX 推理；漏检/推理失败不再退回粗掩膜兜底出数（避免非目标杂物被
+    //    当成产品测量），按原因码上报由调用方复核
     cv::Mat maskCrop;
     std::string detDesc;
     bool ok = false;
     try {
         ok = InferCrop(crop, maskCrop, detDesc);
     } catch (const Ort::Exception& e) {
-        common::LogMsg(common::LWARN,
-                       std::string("ONNX 推理异常，退回粗掩膜兜底: ") + e.what());
-        ok = false;
+        return fail(RetCode::INTERNAL,
+                    std::string("ONNX 推理异常: ") + e.what());
     }
     if (!ok || maskCrop.empty()) {
-        common::LogMsg(common::LWARN, "ROI 内 AI 漏检，退回背景差分粗掩膜兜底");
-        mask = coarse;
-        desc = "fallback";
-        return true;
+        common::LogMsg(common::LWARN, "ROI 内 AI 漏检，返回 AI_MISS 由调用方复核");
+        return fail(RetCode::AI_MISS,
+                    "ROI 内有物体但模型未识别为目标产品（板上无目标产品或模型失效），"
+                    "需人工复核" +
+                        (detDesc.empty() ? "" : "（检测明细: " + detDesc + "）"));
     }
 
     // 4) 掩膜映射回原图坐标，并与粗 ROI 取交集（防 AI 掩膜溢出到 ROI 外的杂物）
