@@ -2,24 +2,58 @@
 
 　　每交付一个版本，在既有条目之前追加一条变更记录（最新版本永远在最上面），列出相对上一版发生变化的全部文件。软件首次克隆整个工程后，后续升级只需按清单把新版同名文件复制覆盖到本地对应路径，并手动删除清单中标注删除的文件。
 
+---
+
+## v2.1.3（2026-09-22）
+
+　　变更记录：Measure 新增可选输出旋转校正后的测量基准图（第 3 个参数 basisImage）。传指针即拿到测量实际使用的那张图，灰度 8UC1，不画任何标注。正射矫正是否参与由 [rectify] enabled 决定，与原来一致。不传参数时行为与旧版完全一致。
+
+### 要替换的文件（5 个，含源码，替换后须重新编译）
+
+| 文件 | 变化说明 |
+|---|---|
+| `src/cam_api.h` | Measure 新增 basisImage 可选参数，版本号 2.1.3 |
+| `src/cam_api.cpp` | Measure 透传 basisImage（失败时输出置空），版本号 2.1.3 |
+| `src/measure/measure_pipeline.h` | Measure 新增 basisImage 参数声明 |
+| `src/measure/measure_pipeline.cpp` | 旋转校正后填充基准图（未画标注，正射参与与否随输入） |
+| `README.md` | 6.2 节基准图输出示例与说明，接口总览表同步 |
+
+### 要新增的文件
+
+　　本版无。
+
+### 要删除的文件
+
+　　本版无。
+
+### 配置参数变更（config.ini 手工合并，勿整文件覆盖）
+
+　　无变更，config.ini 无需替换。
+
+### 替换后要做的事
+
+　　重新编译（Release x64）。软件代码不改也能编译通过（新参数有默认值），需要基准图时给 Measure 传第 3 个参数即可。
+
+---
+
 ## v2.1.2（2026-09-20）
 
-　　变了啥：背景建模交付化（缓存优先、新增 SetBackground 现场学习接口、生产与 demo 分家，Init 不再用 input_dir 现建背景），功能 2 标定质检修复（质检图与校正验证首次真正产出），Measure 新增可选输出旋转校正后的测量基准图（拿到的就是测量实际用的图，不画任何标注）。
+　　变更记录：背景建模交付化（缓存优先、新增 SetBackground 现场学习接口、生产与 demo 分家，Init 不再用 input_dir 现建背景），功能 2 标定质检修复（质检图与校正验证首次真正产出）。
 
 ### 要替换的文件（12 个，含源码，替换后须重新编译）
 
 | 文件 | 变化说明 |
 |---|---|
-| `src/measure/measure_pipeline.h` | 新增 SetBackground 声明，Measure 增加基准图输出参数 |
-| `src/measure/measure_pipeline.cpp` | 背景加载生产/demo 分家，新增 SetBackground 与基准图输出 |
-| `src/cam_api.h` | SetBackground 接口与 Measure 基准图参数，版本号 2.1.2 |
-| `src/cam_api.cpp` | SetBackground 接口与 Measure 基准图透传，版本号 2.1.2 |
+| `src/measure/measure_pipeline.h` | 新增 SetBackground 声明 |
+| `src/measure/measure_pipeline.cpp` | 背景加载生产/demo 分家，新增 SetBackground |
+| `src/cam_api.h` | SetBackground 接口，版本号 2.1.2 |
+| `src/cam_api.cpp` | SetBackground 接口，版本号 2.1.2 |
 | `src/measure_types.h` | 新增返回码 NO_BACKGROUND，背景未就绪时 Measure 返回它 |
 | `src/measure/background.h` | 背景缓存加载函数 |
 | `src/measure/background.cpp` | 背景缓存加载函数 |
 | `main.cpp` | demo 显式中位数建模 |
 | `src/calibration/calibrator.cpp` | 功能 2 质检修复 |
-| `README.md` | 接口说明更新（6.1 SetBackground 调用说明、6.2 基准图输出） |
+| `README.md` | 接口说明更新，6.1 节新增 SetBackground 调用说明 |
 | `.gitignore` | temp/ 仅放行 background_model.bmp 入库 |
 | `CHANGES.md` | 本文件，变更清单更新 |
 
@@ -41,9 +75,11 @@
 
 　　重新编译（Release x64）。背景缓存沿用即可，软件集成按“启动 → 抓一帧 → SetBackground”做开班刷新，每次启动都执行，不要包在未就绪判断里。
 
+---
+
 ## v2.1.1（2026-09-20）
 
-　　变了啥：正射刻度统一为 0.136 mm/px，与现场软件口径对齐。无算法行为变化。
+　　变更记录：正射刻度统一为 0.136 mm/px，与现场软件口径对齐。无算法行为变化。
 
 ### 要替换的文件（6 个，含源码，替换后须重新编译）
 
