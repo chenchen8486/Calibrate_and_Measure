@@ -56,17 +56,23 @@ public:
     // （widthPx / heightPx / 上半部分候选水平边列表）在 MeasureOutput 中。
     //
     // Args:
-    //   image    输入图像，8UC1/8UC3/8UC4。
-    //   debugTag 调试图标识（一般用图像文件名去扩展名）。
-    //            仅当 ini [debug] save_intermediate=true 且本参数非空时，
-    //            向 paths.output_dir/debug/<debugTag>/ 落分割掩膜、增强图、
-    //            旋转图与测量叠加图；否则不产生任何中间文件。
+    //   image      输入图像，8UC1/8UC3/8UC4。
+    //   debugTag   调试图标识（一般用图像文件名去扩展名）。
+    //              仅当 ini [debug] save_intermediate=true 且本参数非空时，
+    //              向 paths.output_dir/debug/<debugTag>/ 落分割掩膜、增强图、
+    //              旋转图与测量叠加图；否则不产生任何中间文件。
+    //   basisImage 可选输出参数：两级旋转校正后的测量基准图（灰度 8UC1，
+    //              未画任何标注），即宽高与水平边实际测量的那张图。
+    //              本层只做旋转校正，是否已含正射矫正由调用方传入的 image
+    //              决定；传 nullptr 不产生额外开销，旋转前失败（无产品、
+    //              背景未就绪等）时输出为空 Mat。
     //
     // Returns:
     //   MeasureOutput：code==OK 时 width/height/horizontalEdges/codeRegions 有效；
     //   失败时 code 取 EMPTY_IMAGE / BAD_FORMAT / NO_PRODUCT / INTERNAL，
     //   message 附中文原因。
-    MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
+    MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "",
+                          cv::Mat* basisImage = nullptr);
 
     // 现场学习背景：用一帧空背板灰度图（8UC1）替换背景模型，并尝试写回
     // paths.background_file 缓存（写失败仅 Warn，本次会话仍生效）。

@@ -235,7 +235,11 @@ bool MeasurePipeline::SetBackground(const cv::Mat& gray, std::string& errMsg) {
     return true;
 }
 
-MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& debugTag) {
+MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& debugTag,
+                                       cv::Mat* basisImage) {
+    if (basisImage) {
+        basisImage->release();  // 保证任何失败分支都不留上一次的旧图
+    }
     if (!ready_) {
         return FailOutput(RetCode::INTERNAL, "测量流水线未初始化，请先调用 Init");
     }
@@ -306,6 +310,11 @@ MeasureOutput MeasurePipeline::Measure(const cv::Mat& image, const std::string& 
                            residual));
         cv::Mat rotAligned, rotMask;
         RotateImageAndMask(aligned, mask, totalAngle, rotAligned, rotMask);
+        // 可选输出：旋转校正后的测量基准图（未画任何标注；是否已含正射矫正
+        // 由调用方传入的输入图决定，本层只负责旋转校正）
+        if (basisImage) {
+            *basisImage = rotAligned;
+        }
         if (dbg) {
             SaveDebugImg(dbgDir, "04_rotated_aligned.bmp", rotAligned);
             SaveDebugImg(dbgDir, "05_rotated_mask.bmp", rotMask);

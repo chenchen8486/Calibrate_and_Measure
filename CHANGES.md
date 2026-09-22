@@ -4,22 +4,22 @@
 
 ## v2.1.2（2026-09-20）
 
-　　变了啥：背景建模交付化（缓存优先、新增 SetBackground 现场学习接口、生产与 demo 分家，Init 不再用 input_dir 现建背景），功能 2 标定质检修复（质检图与校正验证首次真正产出）。
+　　变了啥：背景建模交付化（缓存优先、新增 SetBackground 现场学习接口、生产与 demo 分家，Init 不再用 input_dir 现建背景），功能 2 标定质检修复（质检图与校正验证首次真正产出），Measure 新增可选输出旋转校正后的测量基准图（拿到的就是测量实际用的图，不画任何标注）。
 
 ### 要替换的文件（12 个，含源码，替换后须重新编译）
 
 | 文件 | 变化说明 |
 |---|---|
-| `src/measure/measure_pipeline.h` | 新增 SetBackground 声明 |
-| `src/measure/measure_pipeline.cpp` | 背景加载生产/demo 分家，新增 SetBackground |
-| `src/cam_api.h` | SetBackground 接口，版本号 2.1.2 |
-| `src/cam_api.cpp` | SetBackground 接口，版本号 2.1.2 |
+| `src/measure/measure_pipeline.h` | 新增 SetBackground 声明，Measure 增加基准图输出参数 |
+| `src/measure/measure_pipeline.cpp` | 背景加载生产/demo 分家，新增 SetBackground 与基准图输出 |
+| `src/cam_api.h` | SetBackground 接口与 Measure 基准图参数，版本号 2.1.2 |
+| `src/cam_api.cpp` | SetBackground 接口与 Measure 基准图透传，版本号 2.1.2 |
 | `src/measure_types.h` | 新增返回码 NO_BACKGROUND，背景未就绪时 Measure 返回它 |
 | `src/measure/background.h` | 背景缓存加载函数 |
 | `src/measure/background.cpp` | 背景缓存加载函数 |
 | `main.cpp` | demo 显式中位数建模 |
 | `src/calibration/calibrator.cpp` | 功能 2 质检修复 |
-| `README.md` | 接口说明更新，6.1 节新增 SetBackground 调用说明 |
+| `README.md` | 接口说明更新（6.1 SetBackground 调用说明、6.2 基准图输出） |
 | `.gitignore` | temp/ 仅放行 background_model.bmp 入库 |
 | `CHANGES.md` | 本文件，变更清单更新 |
 

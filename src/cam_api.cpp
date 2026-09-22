@@ -63,7 +63,11 @@ bool Measurer::Init(const std::string& iniPath, std::string& errMsg) {
     return true;
 }
 
-MeasureOutput Measurer::Measure(const cv::Mat& image, const std::string& debugTag) {
+MeasureOutput Measurer::Measure(const cv::Mat& image, const std::string& debugTag,
+                                cv::Mat* basisImage) {
+    if (basisImage) {
+        basisImage->release();  // 保证任何失败分支都不留上一次的旧图
+    }
     if (!ready_) {
         MeasureOutput out;
         out.code = RetCode::INTERNAL;
@@ -84,7 +88,7 @@ MeasureOutput Measurer::Measure(const cv::Mat& image, const std::string& debugTa
             return out;
         }
     }
-    return pipe_.Measure(input, debugTag);
+    return pipe_.Measure(input, debugTag, basisImage);
 }
 
 bool Measurer::SetBackground(const cv::Mat& image, std::string& errMsg) {

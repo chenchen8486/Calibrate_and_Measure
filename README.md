@@ -62,7 +62,7 @@ if (out.code == cam::RetCode::OK) {
 | `MakeBoard(iniPath, errMsg)` | 功能 1：生成标定板 PDF + 预览图 + 打印说明 | 按需 |
 | `Calibrate(images, iniPath, report, errMsg)` | 功能 2：标定求解，1~n 张采图，返回 `CalibReport` | 换机位/换板时一次 |
 | `Measurer::Init(iniPath, errMsg)` | 功能 3 初始化：配置 + 背景加载 + ONNX 会话预热 + 可选矫正 | 启动时一次 |
-| `Measurer::Measure(image, debugTag)` | 功能 3 单帧测量：矫正（内部）→ 分割 → 旋转校正 → 宽高、水平边与码区 | 逐帧 |
+| `Measurer::Measure(image, debugTag, basisImage)` | 功能 3 单帧测量：矫正（内部）→ 分割 → 旋转校正 → 宽高、水平边与码区，basisImage 可选输出旋转校正后的基准图 | 逐帧 |
 | `Measurer::SetBackground(image, errMsg)` | 现场学习背景：一帧空背板图设置背景，覆盖写入本地缓存 | 每次启动（推荐）/换机/开班 |
 | `Measurer::MmPerPx()` / `RectifyEnabled()` / `UsingAi()` | 运行形态查询与毫米换算 | 任意 |
 
@@ -217,9 +217,12 @@ if (out.code == cam::RetCode::NO_BACKGROUND) {
 ```cpp
 cv::Mat raw = /* 相机原始图，8/24/32 通道均可 */;
 
-cam::MeasureOutput out = measurer.Measure(raw, "frame_tag");  // debugTag 可传 ""
+// 第 3 个参数可选：需要"旋转校正后的测量基准图"时传 cv::Mat*（灰度 8UC1，未画标注）
+cv::Mat basis;
+cam::MeasureOutput out = measurer.Measure(raw, "frame_tag", &basis);  // debugTag 可传 ""
 if (out.code == cam::RetCode::OK) {
     // out.width.widthPx / out.height.heightPx / out.horizontalEdges 有效
+    // basis 即测量实际使用的图，可直接显示或存档
     double widthMm = out.width.widthPx * measurer.MmPerPx();  // 矫正开启时
 } else {
     // out.message 为中文失败原因
@@ -227,6 +230,7 @@ if (out.code == cam::RetCode::OK) {
 ```
 
 - 矫正（若开启）由 `Measure` 内部完成：原图 → 转灰度 → 正射矫正 → 测量。调用方只传相机原图，不需要也不应该自己先调 Rectifier。
+- 可选输出 `basisImage`（`Measure` 第 3 个参数，不需要时传 nullptr）：旋转校正后的测量基准图，灰度 8UC1，未画任何标注，就是宽高与水平边测量实际使用的图。正射矫正是否参与由 `[rectify] enabled` 决定：开启且标定可用时是“正射矫正 + 旋转校正”后的图，关闭或标定不可用时是“原始灰度 + 旋转校正”后的图，同一条调用路径。传 nullptr 零额外开销，背景未就绪、无产品等旋转前失败时输出为空 Mat。
 - debugTag 仅在 `[debug] save_intermediate=true` 时生效，非空则向 `[paths] output_dir/debug/<debugTag>/` 落 6 张过程图（输入灰度/分割掩膜/增强图/旋转图/旋转掩膜/测量叠加图），便于部署现场排查。传空串则零中间文件。
 - 未初始化（Init 未调用或失败）时调用 Measure，返回 `code=INTERNAL`，message 提示先初始化。
 - 像素换算：输出均为像素值。矫正开启时，毫米 = 像素 × `MmPerPx()`（当前刻度 0.136 mm/px，与现场软件口径一致。配置键 `[calibrate] target_mm_per_px`）。

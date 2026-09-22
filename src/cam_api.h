@@ -95,12 +95,19 @@ public:
     // 单帧测量：内部按需完成 正射矫正 → 分割 → 两级旋转校正 →
     // 宽高测量 + 上半部分水平边排名 + 码区（二维码/一维码）定位。
     // 调用方只传相机原图。
-    // @param image    输入图像，8UC1/8UC3/8UC4；矫正开启时尺寸须与标定采图一致
-    // @param debugTag 调试图标识（一般用图像名去扩展名）；仅当 ini [debug]
-    //                 save_intermediate=true 且本参数非空时落过程图，
-    //                 部署置 false 即零中间文件
+    // @param image      输入图像，8UC1/8UC3/8UC4；矫正开启时尺寸须与标定采图一致
+    // @param debugTag   调试图标识（一般用图像名去扩展名）；仅当 ini [debug]
+    //                   save_intermediate=true 且本参数非空时落过程图，
+    //                   部署置 false 即零中间文件
+    // @param basisImage 可选输出参数：旋转校正后的测量基准图（灰度 8UC1，
+    //                   未画任何标注，即宽高与水平边测量实际使用的图）。
+    //                   [rectify] enabled=true 且标定可用时为正射矫正 + 旋转
+    //                   校正后的图，关闭或标定不可用时为原始灰度 + 旋转校正
+    //                   后的图（同一条调用路径）。传 nullptr 无额外开销；
+    //                   旋转前失败（背景未就绪/无产品等）时输出为空 Mat
     // @return MeasureOutput：code==OK 时 width/height/horizontalEdges/codeRegions 有效
-    MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "");
+    MeasureOutput Measure(const cv::Mat& image, const std::string& debugTag = "",
+                          cv::Mat* basisImage = nullptr);
 
     // 现场学习背景：用一帧空背板图设置背景模型（换机/开班时调一次，
     // 生产环境唯一建模入口，免放 input_dir 图、免手工维护缓存文件）。
